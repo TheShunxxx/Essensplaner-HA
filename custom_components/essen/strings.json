@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Essensplaner",
+        "description": "Richtet den Essensplaner ein und legt beim ersten Start Beispieldaten an."
+      }
+    },
+    "abort": {
+      "already_configured": "Der Essensplaner ist bereits eingerichtet."
+    }
+  }
+}

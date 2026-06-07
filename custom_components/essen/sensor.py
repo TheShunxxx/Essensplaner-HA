@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
@@ -18,6 +19,23 @@ async def async_setup_platform(
     discovery_info=None,
 ) -> None:
     """Set up meal planner sensors."""
+    manager = await async_get_manager(hass)
+    async_register_services(hass, manager)
+    async_add_entities(
+        [
+            EssenPlanSensor(hass, manager),
+            EssenDishesSensor(hass, manager),
+        ],
+        update_before_add=True,
+    )
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities,
+) -> None:
+    """Set up meal planner sensors from a config entry."""
     manager = await async_get_manager(hass)
     async_register_services(hass, manager)
     async_add_entities(

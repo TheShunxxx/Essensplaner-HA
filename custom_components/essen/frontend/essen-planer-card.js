@@ -286,7 +286,7 @@ class EssenPlanerCard extends HTMLElement {
               ${this._classPicker("edit")}
               <div class="class-help">${this._classDescription(Number(this._draft.editClass || 1))}</div>
               <div class="form-actions">
-                <button class="plain-button primary" data-action="save-edit">Update</button>
+                <button class="plain-button primary" data-action="save-edit">Speichern</button>
                 <button class="plain-button danger-button" data-action="delete-dish">Gericht löschen</button>
                 <button class="plain-button" data-action="go-main">Zurück</button>
               </div>
@@ -404,9 +404,9 @@ class EssenPlanerCard extends HTMLElement {
   async _handleAction(event) {
     const action = event.currentTarget.dataset.action;
     const day = event.currentTarget.dataset.day;
-    if (action === "go-main") return this._navigate("/lovelace/essen");
-    if (action === "go-new") return this._navigate("/lovelace/essen-neu");
-    if (action === "go-edit") return this._navigate("/lovelace/essen-bearbeiten");
+    if (action === "go-main") return this._navigate(this._viewPath("essen"));
+    if (action === "go-new") return this._navigate(this._viewPath("essen-neu"));
+    if (action === "go-edit") return this._navigate(this._viewPath("essen-bearbeiten"));
     if (action === "create-plan") return this._createPlan();
     if (action === "reroll-day") return this._rerollDay(day);
     if (action === "clear-day") return this._clearDay(day);
@@ -424,7 +424,7 @@ class EssenPlanerCard extends HTMLElement {
     this._draft.planYear = period.year;
     this._draft.planWeek = period.week;
     this._clearDayDrafts();
-    await this._callShell("essen_create_plan", {
+    await this._callPlanner("create_plan", {
       year: period.year,
       week: period.week,
     });
@@ -433,7 +433,7 @@ class EssenPlanerCard extends HTMLElement {
 
   async _rerollDay(day) {
     delete this._draft[`day-${day}`];
-    const success = await this._callShell("essen_reroll_day", this._planPayload({ day }));
+    const success = await this._callPlanner("reroll_day", this._planPayload({ day }));
     if (success) {
       delete this._draft[`day-${day}`];
     }
@@ -441,12 +441,12 @@ class EssenPlanerCard extends HTMLElement {
 
   async _clearDay(day) {
     this._draft[`day-${day}`] = "";
-    await this._callShell("essen_clear_day", this._planPayload({ day }));
+    await this._callPlanner("clear_day", this._planPayload({ day }));
   }
 
   async _saveDayInput(input) {
     const day = input.dataset.day;
-    const success = await this._callShell("essen_set_day", this._planPayload({ day, dish_name: input.value.trim() }));
+    const success = await this._callPlanner("set_day", this._planPayload({ day, dish_name: input.value.trim() }));
     if (success) {
       delete this._draft[`day-${day}`];
     }
@@ -470,7 +470,7 @@ class EssenPlanerCard extends HTMLElement {
     this._draft[`day-${day}`] = dish.name;
     this._draft.pickerDay = null;
     this._draft.pickerSearch = "";
-    const success = await this._callShell("essen_set_day", this._planPayload({ day, dish_name: dish.name }));
+    const success = await this._callPlanner("set_day", this._planPayload({ day, dish_name: dish.name }));
     if (success) {
       delete this._draft[`day-${day}`];
     }
@@ -479,7 +479,7 @@ class EssenPlanerCard extends HTMLElement {
   async _saveNewDish() {
     const name = String(this._draft.newName || "").trim();
     if (!name) return this._notify("Bitte einen Namen eingeben.");
-    const success = await this._callShell("essen_add_dish", {
+    const success = await this._callPlanner("add_dish", {
       name,
       klasse: Number(this._draft.newClass || 1),
     });
@@ -509,7 +509,7 @@ class EssenPlanerCard extends HTMLElement {
     if (!this._draft.editId) return this._notify("Bitte ein Gericht auswählen.");
     const name = String(this._draft.editName || "").trim();
     if (!name) return this._notify("Bitte einen Namen eingeben.");
-    const success = await this._callShell("essen_update_dish", {
+    const success = await this._callPlanner("update_dish", {
       dish_id: Number(this._draft.editId),
       name,
       klasse: Number(this._draft.editClass || 1),
@@ -524,7 +524,7 @@ class EssenPlanerCard extends HTMLElement {
     if (!this._draft.editId) return this._notify("Bitte ein Gericht auswählen.");
     if (!confirm("Dieses Gericht wirklich löschen?")) return;
     const deletedId = Number(this._draft.editId);
-    const success = await this._callShell("essen_deactivate_dish", {
+    const success = await this._callPlanner("deactivate_dish", {
       dish_id: Number(this._draft.editId),
     });
     if (success) {
@@ -551,26 +551,9 @@ class EssenPlanerCard extends HTMLElement {
     };
   }
 
-  async _call(domain, service, data) {
+  async _callPlanner(service, data) {
     try {
-      await this._hass.callService(domain, service, data);
-      await this._hass.callService("homeassistant", "update_entity", {
-        entity_id: ["sensor.essen_wochenplan", "sensor.essen_gerichte"],
-      }).catch(() => undefined);
-    } catch (error) {
-      this._notify(error?.message || String(error));
-    }
-  }
-
-  async _callShell(service, data) {
-    try {
-      const encodedData = { ...data };
-      for (const key of ["dish_name", "name"]) {
-        if (encodedData[key] !== undefined) {
-          encodedData[key] = this._encodeShellArg(encodedData[key]);
-        }
-      }
-      await this._hass.callService("shell_command", service, encodedData);
+      await this._hass.callService("essen", service, data);
       await new Promise((resolve) => setTimeout(resolve, 350));
       this._draft.fallbackDishesLoaded = false;
       this._draft.fallbackPlansLoaded = false;
@@ -692,13 +675,14 @@ class EssenPlanerCard extends HTMLElement {
     window.dispatchEvent(new CustomEvent("location-changed"));
   }
 
-  _encodeShellArg(value) {
-    const bytes = new TextEncoder().encode(String(value));
-    let binary = "";
-    bytes.forEach((byte) => {
-      binary += String.fromCharCode(byte);
-    });
-    return `b64_${btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "")}`;
+  _viewPath(view) {
+    const base = this._dashboardBasePath();
+    return `${base}/${view}`;
+  }
+
+  _dashboardBasePath() {
+    const firstSegment = window.location.pathname.split("/").filter(Boolean)[0];
+    return firstSegment ? `/${firstSegment}` : "/lovelace";
   }
 
   _notify(message) {

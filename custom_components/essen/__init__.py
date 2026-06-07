@@ -14,6 +14,9 @@ from typing import Any
 
 import voluptuous as vol
 
+from homeassistant.components.http import StaticPathConfig
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 import homeassistant.helpers.config_validation as cv
@@ -23,6 +26,8 @@ from homeassistant.helpers.typing import ConfigType
 DOMAIN = "essen"
 DATA_MANAGER = "manager"
 SIGNAL_UPDATE = "essen_updated"
+PLATFORMS = [Platform.SENSOR]
+FRONTEND_URL = "/essen-planer"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,6 +92,7 @@ class MealPlanner:
         self.dishes_file = self.base_path / "gerichte.json"
         self.plans_file = self.base_path / "wochenplaene.json"
         self.public_dishes_file = self.base_path.parent / "www" / "essen-gerichte.json"
+        self.public_plans_file = self.base_path.parent / "www" / "essen-wochenplaene.json"
         self.default_dishes_file = Path(__file__).with_name("default_gerichte.json")
         self._lock = RLock()
 
@@ -102,6 +108,7 @@ class MealPlanner:
                     {"version": 1, "current_plan": None, "plans": {}},
                 )
             self._publish_dishes_data(self._load_dishes_data())
+            self._publish_plans_data(self._load_plans())
 
     def create_plan(self, year: int | None = None, week: int | None = None) -> dict[str, Any]:
         with self._lock:
@@ -420,6 +427,11 @@ class MealPlanner:
 
     def _save_plans(self, data: dict[str, Any]) -> None:
         self._write_json_file(self.plans_file, data)
+        self._publish_plans_data(data)
+
+    def _publish_plans_data(self, data: dict[str, Any]) -> None:
+        self.public_plans_file.parent.mkdir(parents=True, exist_ok=True)
+        self._write_json_file(self.public_plans_file, data)
 
     def _read_json_file(self, path: Path) -> dict[str, Any]:
         with path.open("r", encoding="utf-8") as handle:
@@ -435,11 +447,46 @@ class MealPlanner:
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the meal planner."""
-    manager = await async_get_manager(hass)
-    async_register_services(hass, manager)
+    await async_register_frontend(hass)
+
+    if config.get(DOMAIN) is not None:
+        manager = await async_get_manager(hass)
+        async_register_services(hass, manager)
 
     _LOGGER.info("Essensplanung loaded")
     return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up the meal planner from a config entry."""
+    manager = await async_get_manager(hass)
+    async_register_services(hass, manager)
+    await async_register_frontend(hass)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload the meal planner config entry."""
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_register_frontend(hass: HomeAssistant) -> None:
+    """Expose bundled dashboard assets."""
+    hass.data.setdefault(DOMAIN, {})
+    if hass.data[DOMAIN].get("frontend_registered"):
+        return
+
+    await hass.http.async_register_static_paths(
+        [
+            StaticPathConfig(
+                FRONTEND_URL,
+                str(Path(__file__).with_name("frontend")),
+                False,
+            )
+        ]
+    )
+    hass.data[DOMAIN]["frontend_registered"] = True
 
 
 async def async_get_manager(hass: HomeAssistant) -> MealPlanner:

@@ -55,9 +55,23 @@ set_day:
           min: 1
           mode: box
     dish_name:
-      name: Gerichtname
+      name: Gerichtsname
       selector:
         text:
+    year:
+      name: Jahr
+      selector:
+        number:
+          min: 2000
+          max: 2100
+          mode: box
+    week:
+      name: Kalenderwoche
+      selector:
+        number:
+          min: 1
+          max: 53
+          mode: box
 clear_day:
   name: Tag leeren
   description: Entfernt das Gericht für einen Tag.
@@ -67,6 +81,20 @@ clear_day:
       required: true
       selector:
         text:
+    year:
+      name: Jahr
+      selector:
+        number:
+          min: 2000
+          max: 2100
+          mode: box
+    week:
+      name: Kalenderwoche
+      selector:
+        number:
+          min: 1
+          max: 53
+          mode: box
 add_dish:
   name: Gericht hinzufügen
   description: Fügt ein neues aktives Gericht hinzu.

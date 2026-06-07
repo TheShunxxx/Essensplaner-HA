@@ -13,7 +13,7 @@ Der Essensplaner braucht keine Datenbank. Alle Daten liegen lokal als JSON in
 ```
 
 `/config/essen` ist die eigentliche Datenhaltung. Die Dateien unter
-`/config/www` sind veroeffentlichte Kopien fuer das Lovelace-Frontend.
+`/config/www` sind veröffentlichte Kopien für das Lovelace-Frontend.
 
 ## gerichte.json
 
@@ -42,8 +42,8 @@ Felder:
 | `klasse` | Zahl | Planungsregel 1 bis 4 |
 | `active` | Boolean | nur aktive Gerichte werden neu eingeplant |
 
-Beim "Loeschen" in der UI wird ein Gericht nicht entfernt, sondern auf
-`"active": false` gesetzt. So bleiben alte Wochenplaene nachvollziehbar.
+Beim "Löschen" in der UI wird ein Gericht nicht entfernt, sondern auf
+`"active": false` gesetzt. So bleiben alte Wochenpläne nachvollziehbar.
 
 ## wochenplaene.json
 
@@ -107,26 +107,20 @@ Die Integration stellt zwei Sensoren bereit:
 - `sensor.essen_wochenplan`
 - `sensor.essen_gerichte`
 
-`sensor.essen_wochenplan` enthaelt den aktuellen Plan als Attribute. Wenn kein
+`sensor.essen_wochenplan` enthält den aktuellen Plan als Attribute. Wenn kein
 Plan existiert, ist der Status `kein Plan`.
 
-`sensor.essen_gerichte` enthaelt aktive und alle Gerichte als Attribute. Die UI
-nutzt zusaetzlich die JSON-Kopie in `/config/www`, damit Aenderungen direkt im
+`sensor.essen_gerichte` enthält aktive und alle Gerichte als Attribute. Die UI
+nutzt zusätzlich die JSON-Kopie in `/config/www`, damit Änderungen direkt im
 Browser sichtbar werden.
 
 ## Backup
 
-Vor groesseren Aenderungen reicht normalerweise ein Backup von:
+Vor größeren Änderungen reicht normalerweise ein Backup von:
 
 ```text
 /config/essen/gerichte.json
 /config/essen/wochenplaene.json
 ```
 
-Die Dateien unter `/config/www` koennen jederzeit ueber
-
-```bash
-python3 /config/essen/essen_cli.py publish
-```
-
-neu erzeugt werden.
+Die Dateien unter `/config/www` werden von der Integration automatisch aktualisiert.
