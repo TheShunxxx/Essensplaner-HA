@@ -64,7 +64,7 @@ Bei Home Assistant Container oder Home Assistant Core wird HACS nicht über ein 
 7. Home Assistant neu starten.
 8. Unter `Einstellungen -> Geräte & Dienste -> Integration hinzufügen` den `Essensplaner` hinzufügen.
 
-Beim ersten Start legt die Integration Beispieldaten an. Unter anderem ist `Schnitzel mit Pommes` als Wochenendgericht enthalten.
+Beim ersten Start legt die Integration Beispieldaten an.
 
 ## Dashboard einrichten
 
@@ -80,10 +80,12 @@ Karte einmal als **Ressource** laden, sonst kennt das Dashboard
 4. `Ressource hinzufügen` auswählen.
 5. Diese Werte eintragen:
 
-   ```text
-   URL: /local/essen-planer-card.js?v=0.1.3
-   Ressourcentyp: JavaScript-Modul
-   ```
+   | Feld | Wert |
+   |---|---|
+   | URL | `/local/essen-planer-card.js?v=0.1.3` |
+   | Ressourcentyp | `JavaScript-Modul` |
+
+   In das URL-Feld wirklich nur den Pfad eintragen, also ohne `URL:` davor.
 
 6. Speichern.
 7. Den Browser oder die Home-Assistant-App einmal neu laden.
@@ -167,10 +169,12 @@ geladen. Dann diese Punkte prüfen:
 - Ist die Ressource unter `Einstellungen -> Dashboards -> Ressourcen`
   eingetragen und als `JavaScript-Modul` gespeichert?
 
-  ```yaml
-  url: /local/essen-planer-card.js?v=0.1.3
-  type: module
-  ```
+  | Feld | Wert |
+  |---|---|
+  | URL | `/local/essen-planer-card.js?v=0.1.3` |
+  | Ressourcentyp | `JavaScript-Modul` |
+
+  Im URL-Feld darf nicht `URL:` oder `Typ:` stehen.
 
   Alte Einträge mit anderen Versionen oder mit `/essen-planer/essen-planer-card.js`
   sollten entfernt werden.
@@ -178,7 +182,7 @@ geladen. Dann diese Punkte prüfen:
 - Lässt sich diese Adresse im Browser öffnen?
 
   ```text
-  https://DEIN-HOME-ASSISTANT/local/essen-planer-card.js?v=0.1.3
+  https://DEIN-HOME-ASSISTANT-IP:PORT/local/essen-planer-card.js?v=0.1.3
   ```
 
   Wenn dort JavaScript-Code erscheint, ist die Datei erreichbar. Dann die
@@ -191,10 +195,7 @@ geladen. Dann diese Punkte prüfen:
 - Wenn die Adresse zuerst `404` geliefert hat und nach dem Einrichten der
   Integration erst später funktioniert, die Ressourcen-Version erhöhen. Beispiel:
 
-  ```yaml
-  url: /local/essen-planer-card.js?v=0.1.3
-  type: module
-  ```
+  `/local/essen-planer-card.js?v=0.1.4`
 
   Danach speichern und die Home-Assistant-Seite hart neu laden.
 
