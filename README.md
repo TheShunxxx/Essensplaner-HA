@@ -60,9 +60,10 @@ Bei Home Assistant Container oder Home Assistant Core wird HACS nicht über ein 
    ```
 
 5. Kategorie `Integration` wählen.
-6. Repository hinzufügen und `Essensplaner` installieren.
-7. Home Assistant neu starten.
-8. Unter `Einstellungen -> Geräte & Dienste -> Integration hinzufügen` den `Essensplaner` hinzufügen.
+6. Repository hinzufügen
+7. Den Essensplaner in der HACS Übersicht auswählen und ganz runter scrollen, dort den `Essensplaner` installieren/herunterladen.
+8. Home Assistant neu starten.
+9. Unter `Einstellungen -> Geräte & Dienste -> Integration hinzufügen` den `Essensplaner` hinzufügen.
 
 Beim ersten Start legt die Integration Beispieldaten an.
 
