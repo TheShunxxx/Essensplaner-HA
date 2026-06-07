@@ -83,7 +83,7 @@ Karte einmal als **Ressource** laden, sonst kennt das Dashboard
 
    | Feld | Wert |
    |---|---|
-   | URL | `/local/essen-planer-card.js?v=0.1.3` |
+   | URL | `/local/essen-planer-card.js?v=0.1.4` |
    | Ressourcentyp | `JavaScript-Modul` |
 
    In das URL-Feld wirklich nur den Pfad eintragen, also ohne `URL:` davor.
