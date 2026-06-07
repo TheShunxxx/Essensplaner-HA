@@ -175,7 +175,7 @@ geladen. Dann diese Punkte prüfen:
 
   | Feld | Wert |
   |---|---|
-  | URL | `/local/essen-planer-card.js?v=0.1.4` |
+  | URL | `/local/essen-planer-card.js?v=0.1.5` |
   | Ressourcentyp | `JavaScript-Modul` |
 
   Im URL-Feld darf nicht `URL:` oder `Typ:` stehen.
@@ -189,7 +189,7 @@ geladen. Dann diese Punkte prüfen:
 - Lässt sich diese Adresse im Browser öffnen?
 
   ```text
-  https://DEIN-HOME-ASSISTANT-IP:PORT/local/essen-planer-card.js?v=0.1.3
+  https://DEIN-HOME-ASSISTANT-IP:PORT/local/essen-planer-card.js?v=0.1.4
   ```
 
   Wenn dort JavaScript-Code erscheint, ist die Datei erreichbar. Dann die
@@ -202,7 +202,7 @@ geladen. Dann diese Punkte prüfen:
 - Wenn die Adresse zuerst `404` geliefert hat und nach dem Einrichten der
   Integration erst später funktioniert, den Wert hinter `?v=` erhöhen. Beispiel:
 
-  `/local/essen-planer-card.js?v=0.1.4`
+  `/local/essen-planer-card.js?v=0.1.5`
 
   Danach speichern und die Home-Assistant-Seite hart neu laden.
 
@@ -227,6 +227,6 @@ Beim Deaktivieren eines Gerichts wird es nicht gelöscht. Es bleibt in der Datei
 
 ## Hinweise
 
-- Wenn die Karte nach einem Update nicht neu geladen wird, die Version in der Ressource erhöhen, zum Beispiel `?v=0.1.4`.
+- Wenn die Karte nach einem Update nicht neu geladen wird, die Version in der Ressource erhöhen, zum Beispiel `?v=0.1.5`.
 - Wenn `custom:essen-planer-card` nicht gefunden wird, prüfen, ob die Ressource eingetragen ist und Home Assistant nach der Installation neu gestartet wurde.
 - Das Repository ist aktuell für die Nutzung als HACS Custom Repository gedacht, nicht als offizieller HACS-Store-Eintrag.
