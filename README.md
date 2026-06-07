@@ -30,6 +30,26 @@ Dasselbe Gericht wird in einer Woche nicht doppelt eingeplant.
 
 Dieses Repository ist als **HACS Custom Repository** gedacht.
 
+### Wenn HACS noch nicht installiert ist
+
+Wenn HACS nicht in der Seitenleiste erscheint, muss HACS zuerst eingerichtet werden.
+
+Bei Home Assistant OS oder Home Assistant Supervised geht das über die Oberfläche:
+
+1. Die offizielle HACS-Anleitung öffnen: <https://hacs.dev/docs/use/download/download/>
+2. Dort den My-Home-Assistant-Link zum Hinzufügen des HACS-Add-on-Repositorys verwenden.
+3. Das Add-on `Get HACS` installieren und starten.
+4. In den Logs des Add-ons den angezeigten Schritten folgen.
+5. Home Assistant neu starten.
+6. Unter `Einstellungen -> Geräte & Dienste -> Integration hinzufügen` nach `HACS` suchen und HACS einrichten.
+7. Bei GitHub anmelden und den angezeigten Gerätecode bestätigen.
+
+Falls HACS danach noch nicht sichtbar ist, den Browser-Cache leeren oder die Seite hart neu laden.
+
+Bei Home Assistant Container oder Home Assistant Core wird HACS nicht über ein Add-on installiert. Dafür die Container/Core-Anleitung auf der HACS-Seite verwenden.
+
+### Essensplaner installieren
+
 1. HACS öffnen.
 2. Oben rechts das Drei-Punkte-Menü öffnen.
 3. `Custom repositories` auswählen.
@@ -48,39 +68,134 @@ Beim ersten Start legt die Integration Beispieldaten an. Unter anderem ist `Schn
 
 ## Dashboard einrichten
 
-Die Integration liefert die Dashboard-Karte selbst aus. Die Ressource muss einmal in Home Assistant eingetragen werden:
+### Ressource eintragen
+
+Der Essensplaner nutzt eine eigene Dashboard-Karte. Home Assistant muss diese
+Karte einmal als **Ressource** laden, sonst kennt das Dashboard
+`custom:essen-planer-card` nicht.
+
+1. In Home Assistant `Einstellungen -> Dashboards` öffnen.
+2. Oben rechts das Drei-Punkte-Menü öffnen.
+3. `Ressourcen` auswählen.
+4. `Ressource hinzufügen` auswählen.
+5. Diese Werte eintragen:
+
+   ```text
+   URL: /essen-planer/essen-planer-card.js?v=0.1.2
+   Ressourcentyp: JavaScript-Modul
+   ```
+
+6. Speichern.
+7. Den Browser oder die Home-Assistant-App einmal neu laden.
+
+Wenn `Ressourcen` nicht sichtbar ist, im eigenen Benutzerprofil den
+`Erweiterten Modus` aktivieren und danach erneut unter `Einstellungen -> Dashboards`
+nachsehen.
+
+### Views anlegen
+
+Der Essensplaner braucht drei Dashboard-Views. Die Pfade müssen genau so heißen,
+weil die Buttons in der Karte zwischen diesen Seiten wechseln:
+
+| View | Pfad | Aufgabe |
+|---|---|---|
+| `Essen` | `essen` | Wochenplan anzeigen und bearbeiten |
+| `Neues Gericht` | `essen-neu` | neues Gericht hinzufügen |
+| `Gerichte bearbeiten` | `essen-bearbeiten` | vorhandene Gerichte ändern oder deaktivieren |
+
+Am einfachsten ist der Weg über den YAML-Editor des Dashboards:
+
+1. Das gewünschte Dashboard öffnen.
+2. Dashboard bearbeiten.
+3. Oben rechts das Drei-Punkte-Menü öffnen.
+4. `Rohkonfigurationseditor` öffnen.
+5. Den folgenden Block in die `views:`-Liste einfügen.
+
+Wenn dein Dashboard noch leer ist, kann der Block komplett übernommen werden.
+Wenn es schon andere Views gibt, nur die drei Einträge unterhalb von `views:`
+in die vorhandene `views:`-Liste kopieren. Dabei auf die Einrückungen achten.
 
 ```yaml
-url: /essen-planer/essen-planer-card.js?v=0.1.0
-type: module
+views:
+  - title: Essen
+    path: essen
+    icon: mdi:silverware-fork-knife
+    type: panel
+    cards:
+      - type: custom:essen-planer-card
+        mode: plan
+  - title: Neues Gericht
+    path: essen-neu
+    icon: mdi:plus-box-outline
+    type: panel
+    subview: true
+    cards:
+      - type: custom:essen-planer-card
+        mode: new
+  - title: Gerichte bearbeiten
+    path: essen-bearbeiten
+    icon: mdi:playlist-edit
+    type: panel
+    subview: true
+    cards:
+      - type: custom:essen-planer-card
+        mode: edit
 ```
 
-Danach drei Views im gewünschten Dashboard anlegen:
+`subview: true` sorgt dafür, dass `Neues Gericht` und `Gerichte bearbeiten`
+nicht als eigene Reiter oben im Dashboard auftauchen. Sie werden nur über die
+Buttons im Essensplaner geöffnet.
 
-- `Essen`
-- `Neues Gericht`
-- `Gerichte bearbeiten`
+Die fertigen View-Beispiele liegen zusätzlich in
+[`examples/lovelace-views.json`](examples/lovelace-views.json).
 
-Die fertigen View-Beispiele liegen in [`examples/lovelace-views.json`](examples/lovelace-views.json).
+### Danach testen
 
-Die wichtigste Karte ist:
+Nach dem Speichern der Views:
 
-```yaml
-type: custom:essen-planer-card
-mode: plan
-```
+1. Den Bearbeitungsmodus des Dashboards verlassen.
+2. Browser oder Home-Assistant-App neu laden.
+3. Den Tab `Essen` öffnen.
 
-Für die beiden Unterseiten:
+Wenn dort `Konfigurationsfehler` oder `Custom element doesn't exist:
+essen-planer-card` steht, ist meistens die Dashboard-Ressource noch nicht
+geladen. Dann diese Punkte prüfen:
 
-```yaml
-type: custom:essen-planer-card
-mode: new
-```
+- Wurde die Integration nach der HACS-Installation wirklich unter
+  `Einstellungen -> Geräte & Dienste -> Integration hinzufügen -> Essensplaner`
+  hinzugefügt?
+- Ist die Ressource unter `Einstellungen -> Dashboards -> Ressourcen`
+  eingetragen und als `JavaScript-Modul` gespeichert?
 
-```yaml
-type: custom:essen-planer-card
-mode: edit
-```
+  ```yaml
+  url: /essen-planer/essen-planer-card.js?v=0.1.2
+  type: module
+  ```
+
+  Alte Einträge wie `/local/essen-planer-card.js` sollten entfernt werden.
+
+- Lässt sich diese Adresse im Browser öffnen?
+
+  ```text
+  https://DEIN-HOME-ASSISTANT/essen-planer/essen-planer-card.js?v=0.1.2
+  ```
+
+  Wenn dort JavaScript-Code erscheint, ist die Datei erreichbar. Dann die
+  Home-Assistant-Seite neu laden.
+
+  Wenn dort `404` oder `Not found` erscheint, ist die Integration noch nicht
+  geladen oder Home Assistant wurde nach der Installation noch nicht neu
+  gestartet.
+
+- Wenn die Adresse zuerst `404` geliefert hat und nach dem Einrichten der
+  Integration erst später funktioniert, die Ressourcen-Version erhöhen. Beispiel:
+
+  ```yaml
+  url: /essen-planer/essen-planer-card.js?v=0.1.2
+  type: module
+  ```
+
+  Danach speichern und die Home-Assistant-Seite hart neu laden.
 
 ## Daten
 
@@ -102,6 +217,6 @@ Beim Deaktivieren eines Gerichts wird es nicht gelöscht. Es bleibt in der Datei
 
 ## Hinweise
 
-- Wenn die Karte nach einem Update nicht neu geladen wird, die Version in der Ressource erhöhen, zum Beispiel `?v=0.1.1`.
+- Wenn die Karte nach einem Update nicht neu geladen wird, die Version in der Ressource erhöhen, zum Beispiel `?v=0.1.3`.
 - Wenn `custom:essen-planer-card` nicht gefunden wird, prüfen, ob die Ressource eingetragen ist und Home Assistant nach der Installation neu gestartet wurde.
 - Das Repository ist aktuell für die Nutzung als HACS Custom Repository gedacht, nicht als offizieller HACS-Store-Eintrag.

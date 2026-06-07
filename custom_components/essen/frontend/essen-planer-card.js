@@ -27,21 +27,22 @@ class EssenPlanerCard extends HTMLElement {
   _ensureDraftDefaults() {
     const current = this._currentIsoWeek();
     const plan = this._planAttrs();
-    this._draft.planYear ??= plan.year || current.year;
-    this._draft.planWeek ??= plan.week || current.week;
-    this._draft.planTarget ??= "next";
-    this._draft.newClass ??= 1;
-    this._draft.editClass ??= 1;
-    this._draft.editSearch ??= "";
+    if (this._draft.planYear == null) this._draft.planYear = plan.year || current.year;
+    if (this._draft.planWeek == null) this._draft.planWeek = plan.week || current.week;
+    if (this._draft.planTarget == null) this._draft.planTarget = "next";
+    if (this._draft.newClass == null) this._draft.newClass = 1;
+    if (this._draft.editClass == null) this._draft.editClass = 1;
+    if (this._draft.editSearch == null) this._draft.editSearch = "";
   }
 
   _planAttrs() {
-    const sensor = this._hass?.states?.["sensor.essen_wochenplan"]?.attributes || {};
+    const sensorEntity = this._hass && this._hass.states && this._hass.states["sensor.essen_wochenplan"];
+    const sensor = sensorEntity && sensorEntity.attributes ? sensorEntity.attributes : {};
     if (!this._draft.fallbackPlansLoading && !this._draft.fallbackPlansLoaded) {
       this._loadPlansFallback();
     }
     const plansData = this._draft.fallbackPlans || {};
-    const plan = plansData.plans?.[plansData.current_plan];
+    const plan = plansData.plans && plansData.current_plan ? plansData.plans[plansData.current_plan] : null;
     if (!plan) return sensor;
     const filled = (plan.days || []).filter((day) => day.dish_name).length;
     return {
@@ -56,7 +57,8 @@ class EssenPlanerCard extends HTMLElement {
   }
 
   _dishesAttrs() {
-    return this._hass?.states?.["sensor.essen_gerichte"]?.attributes || {};
+    const sensorEntity = this._hass && this._hass.states && this._hass.states["sensor.essen_gerichte"];
+    return sensorEntity && sensorEntity.attributes ? sensorEntity.attributes : {};
   }
 
   _activeDishes() {
@@ -176,7 +178,8 @@ class EssenPlanerCard extends HTMLElement {
   }
 
   _dayRow(day) {
-    const value = this._draft[`day-${day.key}`] ?? day.dish_name ?? "";
+    const draftValue = this._draft[`day-${day.key}`];
+    const value = draftValue != null ? draftValue : day.dish_name || "";
     return `
       <div class="day-row">
         <div class="day-name">${this._escape(day.name)}</div>
@@ -566,7 +569,7 @@ class EssenPlanerCard extends HTMLElement {
       }).catch(() => undefined);
       return true;
     } catch (error) {
-      this._notify(error?.message || String(error));
+      this._notify((error && error.message) || String(error));
       return false;
     }
   }
@@ -616,7 +619,8 @@ class EssenPlanerCard extends HTMLElement {
   }
 
   _focusedRole() {
-    const role = this.shadowRoot?.activeElement?.dataset?.role;
+    const activeElement = this.shadowRoot && this.shadowRoot.activeElement;
+    const role = activeElement && activeElement.dataset ? activeElement.dataset.role : null;
     return ["edit-search", "day-picker-search", "day-input", "new-name", "edit-name"].includes(role) ? role : null;
   }
 
@@ -700,12 +704,12 @@ class EssenPlanerCard extends HTMLElement {
   }
 
   _escape(value) {
-    return String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 
   _styles() {
