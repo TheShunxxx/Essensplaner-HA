@@ -60,9 +60,10 @@ Bei Home Assistant Container oder Home Assistant Core wird HACS nicht über ein 
    ```
 
 5. Kategorie `Integration` wählen.
-6. Repository hinzufügen und `Essensplaner` installieren.
-7. Home Assistant neu starten.
-8. Unter `Einstellungen -> Geräte & Dienste -> Integration hinzufügen` den `Essensplaner` hinzufügen.
+6. Repository hinzufügen.
+7. Den Essensplaner in der HACS Übersicht auswählen und dort den Essensplaner installieren/herunterladen.
+8. Home Assistant neu starten.
+9. Unter `Einstellungen -> Geräte & Dienste -> Integration hinzufügen` den `Essensplaner` hinzufügen.
 
 Beim ersten Start legt die Integration Beispieldaten an.
 
@@ -86,6 +87,9 @@ Karte einmal als **Ressource** laden, sonst kennt das Dashboard
    | Ressourcentyp | `JavaScript-Modul` |
 
    In das URL-Feld wirklich nur den Pfad eintragen, also ohne `URL:` davor.
+   Die Zahl hinter `?v=` ist nur für den Browser-Cache. Wenn diese URL schon
+   einmal verwendet wurde und die Karte nicht lädt, einfach eine neue Zahl
+   nehmen, zum Beispiel `?v=0.1.4`.
 
 6. Speichern.
 7. Den Browser oder die Home-Assistant-App einmal neu laden.
@@ -171,10 +175,13 @@ geladen. Dann diese Punkte prüfen:
 
   | Feld | Wert |
   |---|---|
-  | URL | `/local/essen-planer-card.js?v=0.1.3` |
+  | URL | `/local/essen-planer-card.js?v=0.1.4` |
   | Ressourcentyp | `JavaScript-Modul` |
 
   Im URL-Feld darf nicht `URL:` oder `Typ:` stehen.
+  Der Wert hinter `?v=` muss nicht zur Integrationsversion passen. Er muss nur
+  neu sein, wenn der Browser oder die Home-Assistant-App noch eine alte Datei
+  im Cache hat.
 
   Alte Einträge mit anderen Versionen oder mit `/essen-planer/essen-planer-card.js`
   sollten entfernt werden.
@@ -193,7 +200,7 @@ geladen. Dann diese Punkte prüfen:
   gestartet.
 
 - Wenn die Adresse zuerst `404` geliefert hat und nach dem Einrichten der
-  Integration erst später funktioniert, die Ressourcen-Version erhöhen. Beispiel:
+  Integration erst später funktioniert, den Wert hinter `?v=` erhöhen. Beispiel:
 
   `/local/essen-planer-card.js?v=0.1.4`
 
