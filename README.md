@@ -247,3 +247,4 @@ Beim Deaktivieren eines Gerichts wird es nicht gelöscht. Es bleibt in der Datei
 - Wenn die Karte nach einem Update nicht neu geladen wird, die Version in der Ressource erhöhen, zum Beispiel `?v=0.1.5`.
 - Wenn `custom:essen-planer-card` nicht gefunden wird, prüfen, ob die Ressource eingetragen ist und Home Assistant nach der Installation neu gestartet wurde.
 - Das Repository ist aktuell für die Nutzung als HACS Custom Repository gedacht, nicht als offizieller HACS-Store-Eintrag.
+- Wenn etwas bei der Installation/Konfiguration hakt, ist es immer ratsam mal HA neu zu starten. Oft liegt noch etwas falsches im Cache
