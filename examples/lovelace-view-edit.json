@@ -1,0 +1,14 @@
+{
+  "title": "Gerichte bearbeiten",
+  "path": "essen-bearbeiten",
+  "icon": "mdi:playlist-edit",
+  "type": "panel",
+  "subview": true,
+  "badges": [],
+  "cards": [
+    {
+      "type": "custom:essen-planer-card",
+      "mode": "edit"
+    }
+  ]
+}

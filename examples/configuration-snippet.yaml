@@ -1,0 +1,18 @@
+# In configuration.yaml einfuegen.
+# Falls es die Abschnitte sensor: oder shell_command: schon gibt, nur die
+# eingerueckten Eintraege in die bestehenden Abschnitte uebernehmen.
+
+essen:
+
+sensor:
+  - platform: essen
+
+shell_command:
+  essen_publish: "python3 /config/essen/essen_cli.py publish"
+  essen_create_plan: "python3 /config/essen/essen_cli.py create_plan --year {{ year | int }} --week {{ week | int }}"
+  essen_reroll_day: "python3 /config/essen/essen_cli.py reroll_day --year {{ year | int }} --week {{ week | int }} --day '{{ day }}'"
+  essen_set_day: "python3 /config/essen/essen_cli.py set_day --year {{ year | int }} --week {{ week | int }} --day '{{ day }}' --dish-name '{{ dish_name }}'"
+  essen_clear_day: "python3 /config/essen/essen_cli.py clear_day --year {{ year | int }} --week {{ week | int }} --day '{{ day }}'"
+  essen_add_dish: "python3 /config/essen/essen_cli.py add_dish --name '{{ name }}' --klasse {{ klasse | int }}"
+  essen_update_dish: "python3 /config/essen/essen_cli.py update_dish --dish-id {{ dish_id | int }} --name '{{ name }}' --klasse {{ klasse | int }}"
+  essen_deactivate_dish: "python3 /config/essen/essen_cli.py deactivate_dish --dish-id {{ dish_id | int }}"

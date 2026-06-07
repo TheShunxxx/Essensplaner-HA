@@ -1,0 +1,13 @@
+{
+  "title": "Essen",
+  "path": "essen",
+  "icon": "mdi:silverware-fork-knife",
+  "type": "panel",
+  "badges": [],
+  "cards": [
+    {
+      "type": "custom:essen-planer-card",
+      "mode": "plan"
+    }
+  ]
+}

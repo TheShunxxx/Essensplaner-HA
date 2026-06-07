@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Runtime files if somebody develops directly inside /config.
+config/essen/gerichte.json
+config/essen/wochenplaene.json
+www/essen-gerichte.json
+www/essen-wochenplaene.json
+
+# Home Assistant editor/backup noise.
+*.bak
+*.tmp
+*.old
+*.log

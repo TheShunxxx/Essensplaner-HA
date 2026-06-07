@@ -1,0 +1,43 @@
+[
+  {
+    "title": "Essen",
+    "path": "essen",
+    "icon": "mdi:silverware-fork-knife",
+    "type": "panel",
+    "badges": [],
+    "cards": [
+      {
+        "type": "custom:essen-planer-card",
+        "mode": "plan"
+      }
+    ]
+  },
+  {
+    "title": "Neues Gericht",
+    "path": "essen-neu",
+    "icon": "mdi:plus-box-outline",
+    "type": "panel",
+    "subview": true,
+    "badges": [],
+    "cards": [
+      {
+        "type": "custom:essen-planer-card",
+        "mode": "new"
+      }
+    ]
+  },
+  {
+    "title": "Gerichte bearbeiten",
+    "path": "essen-bearbeiten",
+    "icon": "mdi:playlist-edit",
+    "type": "panel",
+    "subview": true,
+    "badges": [],
+    "cards": [
+      {
+        "type": "custom:essen-planer-card",
+        "mode": "edit"
+      }
+    ]
+  }
+]

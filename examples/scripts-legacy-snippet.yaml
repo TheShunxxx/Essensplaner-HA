@@ -1,0 +1,33 @@
+# Optional / historisch:
+# Die aktuelle Custom Card ruft die shell_command.* Services direkt auf.
+# Diese Scripts sind nur nuetzlich, wenn du eigene HA-Buttons/Automationen
+# bauen moechtest.
+
+essen_plan_erstellen:
+  alias: Essen Plan erstellen
+  mode: single
+  sequence:
+    - service: shell_command.essen_create_plan
+      data:
+        year: "{{ states('input_number.essen_jahr') | int }}"
+        week: "{{ states('input_number.essen_kw') | int }}"
+
+essen_tag_neu_wuerfeln:
+  alias: Essen Tag neu wuerfeln
+  mode: single
+  sequence:
+    - service: shell_command.essen_reroll_day
+      data:
+        year: "{{ states('input_number.essen_jahr') | int }}"
+        week: "{{ states('input_number.essen_kw') | int }}"
+        day: "{{ states('input_select.essen_tag') }}"
+
+essen_tag_leeren:
+  alias: Essen Tag leeren
+  mode: single
+  sequence:
+    - service: shell_command.essen_clear_day
+      data:
+        year: "{{ states('input_number.essen_jahr') | int }}"
+        week: "{{ states('input_number.essen_kw') | int }}"
+        day: "{{ states('input_select.essen_tag') }}"

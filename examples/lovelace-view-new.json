@@ -1,0 +1,14 @@
+{
+  "title": "Neues Gericht",
+  "path": "essen-neu",
+  "icon": "mdi:plus-box-outline",
+  "type": "panel",
+  "subview": true,
+  "badges": [],
+  "cards": [
+    {
+      "type": "custom:essen-planer-card",
+      "mode": "new"
+    }
+  ]
+}

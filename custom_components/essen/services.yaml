@@ -1,0 +1,123 @@
+create_plan:
+  name: Wochenplan erstellen
+  description: Erstellt einen neuen Essensplan für Jahr und Kalenderwoche.
+  fields:
+    year:
+      name: Jahr
+      selector:
+        number:
+          min: 2000
+          max: 2100
+          mode: box
+    week:
+      name: Kalenderwoche
+      selector:
+        number:
+          min: 1
+          max: 53
+          mode: box
+reroll_day:
+  name: Tag neu würfeln
+  description: Wählt für einen Tag im Wochenplan ein neues zufälliges Gericht.
+  fields:
+    day:
+      name: Tag
+      required: true
+      selector:
+        text:
+    year:
+      name: Jahr
+      selector:
+        number:
+          min: 2000
+          max: 2100
+          mode: box
+    week:
+      name: Kalenderwoche
+      selector:
+        number:
+          min: 1
+          max: 53
+          mode: box
+set_day:
+  name: Gericht für Tag setzen
+  description: Setzt ein Gericht per ID oder Name für einen Tag.
+  fields:
+    day:
+      name: Tag
+      required: true
+      selector:
+        text:
+    dish_id:
+      name: Gericht-ID
+      selector:
+        number:
+          min: 1
+          mode: box
+    dish_name:
+      name: Gerichtname
+      selector:
+        text:
+clear_day:
+  name: Tag leeren
+  description: Entfernt das Gericht für einen Tag.
+  fields:
+    day:
+      name: Tag
+      required: true
+      selector:
+        text:
+add_dish:
+  name: Gericht hinzufügen
+  description: Fügt ein neues aktives Gericht hinzu.
+  fields:
+    name:
+      name: Name
+      required: true
+      selector:
+        text:
+    klasse:
+      name: Klasse
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 4
+          mode: box
+update_dish:
+  name: Gericht aktualisieren
+  description: Aktualisiert Name, Klasse oder Aktivstatus eines Gerichts.
+  fields:
+    dish_id:
+      name: Gericht-ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    name:
+      name: Name
+      selector:
+        text:
+    klasse:
+      name: Klasse
+      selector:
+        number:
+          min: 1
+          max: 4
+          mode: box
+    active:
+      name: Aktiv
+      selector:
+        boolean:
+deactivate_dish:
+  name: Gericht deaktivieren
+  description: Markiert ein Gericht als inaktiv.
+  fields:
+    dish_id:
+      name: Gericht-ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box

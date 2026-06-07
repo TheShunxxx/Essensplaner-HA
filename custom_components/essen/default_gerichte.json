@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "dishes": [
+    { "id": 1, "name": "Nudeln mit Tomatensauce", "klasse": 1, "active": true },
+    { "id": 2, "name": "Kartoffeln mit Kraeuterquark", "klasse": 1, "active": true },
+    { "id": 3, "name": "Reis-Gemuese-Pfanne", "klasse": 1, "active": true },
+    { "id": 4, "name": "Omelett mit Salat", "klasse": 1, "active": true },
+    { "id": 5, "name": "Wraps mit Haehnchen", "klasse": 1, "active": true },
+    { "id": 6, "name": "Ofenkartoffeln mit Dip", "klasse": 1, "active": true },
+    { "id": 7, "name": "Chili sin Carne", "klasse": 2, "active": true },
+    { "id": 8, "name": "Lasagne", "klasse": 2, "active": true },
+    { "id": 9, "name": "Burger mit Pommes", "klasse": 2, "active": true },
+    { "id": 10, "name": "Selbstgemachte Pizza", "klasse": 3, "active": true },
+    { "id": 11, "name": "Gemuesecurry mit Reis", "klasse": 3, "active": true },
+    { "id": 12, "name": "Schnitzel mit Pommes", "klasse": 4, "active": true },
+    { "id": 13, "name": "Sonntagsbraten mit Gemuese", "klasse": 4, "active": true },
+    { "id": 14, "name": "Inaktives Beispielgericht", "klasse": 1, "active": false }
+  ]
+}
