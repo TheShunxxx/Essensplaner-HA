@@ -28,6 +28,9 @@ Dasselbe Gericht wird in einer Woche nicht doppelt eingeplant.
 
 ## Installation über HACS
 
+Video Anleitung:
+[YouTube-Video ansehen](https://youtu.be/xMut251LwIU)
+
 Dieses Repository ist als **HACS Custom Repository** gedacht.
 
 ### Wenn HACS noch nicht installiert ist
