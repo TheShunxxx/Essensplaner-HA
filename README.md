@@ -89,7 +89,7 @@ Karte einmal als **Ressource** laden, sonst kennt das Dashboard
    In das URL-Feld wirklich nur den Pfad eintragen, also ohne `URL:` davor.
    Die Zahl hinter `?v=` ist nur für den Browser-Cache. Wenn diese URL schon
    einmal verwendet wurde und die Karte nicht lädt, einfach eine neue Zahl
-   nehmen, zum Beispiel `?v=0.1.4`.
+   nehmen, zum Beispiel `?v=0.1.5`.
 
 6. Speichern.
 7. Den Browser oder die Home-Assistant-App einmal neu laden.
