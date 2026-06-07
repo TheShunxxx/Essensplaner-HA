@@ -81,7 +81,7 @@ Karte einmal als **Ressource** laden, sonst kennt das Dashboard
 5. Diese Werte eintragen:
 
    ```text
-   URL: /essen-planer/essen-planer-card.js?v=0.1.2
+   URL: /local/essen-planer-card.js?v=0.1.3
    Ressourcentyp: JavaScript-Modul
    ```
 
@@ -168,16 +168,17 @@ geladen. Dann diese Punkte prüfen:
   eingetragen und als `JavaScript-Modul` gespeichert?
 
   ```yaml
-  url: /essen-planer/essen-planer-card.js?v=0.1.2
+  url: /local/essen-planer-card.js?v=0.1.3
   type: module
   ```
 
-  Alte Einträge wie `/local/essen-planer-card.js` sollten entfernt werden.
+  Alte Einträge mit anderen Versionen oder mit `/essen-planer/essen-planer-card.js`
+  sollten entfernt werden.
 
 - Lässt sich diese Adresse im Browser öffnen?
 
   ```text
-  https://DEIN-HOME-ASSISTANT/essen-planer/essen-planer-card.js?v=0.1.2
+  https://DEIN-HOME-ASSISTANT/local/essen-planer-card.js?v=0.1.3
   ```
 
   Wenn dort JavaScript-Code erscheint, ist die Datei erreichbar. Dann die
@@ -191,7 +192,7 @@ geladen. Dann diese Punkte prüfen:
   Integration erst später funktioniert, die Ressourcen-Version erhöhen. Beispiel:
 
   ```yaml
-  url: /essen-planer/essen-planer-card.js?v=0.1.2
+  url: /local/essen-planer-card.js?v=0.1.3
   type: module
   ```
 
@@ -211,12 +212,13 @@ Die Integration veröffentlicht zusätzlich aktuelle Kopien für die Dashboard-K
 ```text
 /config/www/essen-gerichte.json
 /config/www/essen-wochenplaene.json
+/config/www/essen-planer-card.js
 ```
 
 Beim Deaktivieren eines Gerichts wird es nicht gelöscht. Es bleibt in der Datei erhalten, wird aber nicht mehr für neue Pläne verwendet.
 
 ## Hinweise
 
-- Wenn die Karte nach einem Update nicht neu geladen wird, die Version in der Ressource erhöhen, zum Beispiel `?v=0.1.3`.
+- Wenn die Karte nach einem Update nicht neu geladen wird, die Version in der Ressource erhöhen, zum Beispiel `?v=0.1.4`.
 - Wenn `custom:essen-planer-card` nicht gefunden wird, prüfen, ob die Ressource eingetragen ist und Home Assistant nach der Installation neu gestartet wurde.
 - Das Repository ist aktuell für die Nutzung als HACS Custom Repository gedacht, nicht als offizieller HACS-Store-Eintrag.

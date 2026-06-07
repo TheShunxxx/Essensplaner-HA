@@ -93,7 +93,9 @@ class MealPlanner:
         self.plans_file = self.base_path / "wochenplaene.json"
         self.public_dishes_file = self.base_path.parent / "www" / "essen-gerichte.json"
         self.public_plans_file = self.base_path.parent / "www" / "essen-wochenplaene.json"
+        self.public_card_file = self.base_path.parent / "www" / "essen-planer-card.js"
         self.default_dishes_file = Path(__file__).with_name("default_gerichte.json")
+        self.card_source_file = Path(__file__).with_name("frontend") / "essen-planer-card.js"
         self._lock = RLock()
 
     def ensure_files(self) -> None:
@@ -109,6 +111,7 @@ class MealPlanner:
                 )
             self._publish_dishes_data(self._load_dishes_data())
             self._publish_plans_data(self._load_plans())
+            self._publish_card_file()
 
     def create_plan(self, year: int | None = None, week: int | None = None) -> dict[str, Any]:
         with self._lock:
@@ -432,6 +435,15 @@ class MealPlanner:
     def _publish_plans_data(self, data: dict[str, Any]) -> None:
         self.public_plans_file.parent.mkdir(parents=True, exist_ok=True)
         self._write_json_file(self.public_plans_file, data)
+
+    def _publish_card_file(self) -> None:
+        source = self.card_source_file.read_bytes()
+        self.public_card_file.parent.mkdir(parents=True, exist_ok=True)
+        if self.public_card_file.exists() and self.public_card_file.read_bytes() == source:
+            return
+        tmp_path = self.public_card_file.with_suffix(self.public_card_file.suffix + ".tmp")
+        tmp_path.write_bytes(source)
+        tmp_path.replace(self.public_card_file)
 
     def _read_json_file(self, path: Path) -> dict[str, Any]:
         with path.open("r", encoding="utf-8") as handle:
