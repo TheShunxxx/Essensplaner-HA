@@ -175,7 +175,7 @@ geladen. Dann diese Punkte prüfen:
 
   | Feld | Wert |
   |---|---|
-  | URL | `/local/essen-planer-card.js?v=0.1.5` |
+  | URL | `/local/essen-planer-card.js?v=0.1.4` |
   | Ressourcentyp | `JavaScript-Modul` |
 
   Im URL-Feld darf nicht `URL:` oder `Typ:` stehen.
