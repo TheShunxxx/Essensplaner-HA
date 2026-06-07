@@ -13,6 +13,20 @@ Ein Essensplaner für Home Assistant mit Wochenplan, Gerichteliste und einfachen
 - Gerichte bearbeiten oder deaktivieren
 - lokale Datenhaltung in JSON-Dateien, keine Datenbank nötig
 
+## Screenshots
+
+### Wochenplan
+
+![Wochenplan des Essensplaners](images/1-EP.png)
+
+### Neues Gericht
+
+![Neues Gericht im Essensplaner anlegen](images/2-EP.png)
+
+### Gerichte bearbeiten
+
+![Gerichte im Essensplaner bearbeiten](images/3-EP.png)
+
 ## Kategorien
 
 Jedes Gericht hat eine Klasse. Die Klasse steuert, wie oft und wann ein Gericht eingeplant werden darf.
