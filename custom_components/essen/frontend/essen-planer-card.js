@@ -497,7 +497,7 @@ class EssenPlanerCard extends HTMLElement {
   _selectDishById(id) {
     const dish = this._activeDishes().find((entry) => Number(entry.id) === Number(id));
     if (dish) {
-      this._selectDish(dish, true);
+      this._selectDish(dish, false);
     }
   }
 
@@ -505,7 +505,29 @@ class EssenPlanerCard extends HTMLElement {
     this._draft.editId = Number(dish.id);
     this._draft.editName = dish.name || "";
     this._draft.editClass = Number(dish.klasse || 1);
-    if (rerender) this._render();
+    if (rerender) {
+      this._render();
+      return;
+    }
+    this._refreshEditSelection();
+  }
+
+  _refreshEditSelection() {
+    const editName = this.shadowRoot.querySelector('[data-role="edit-name"]');
+    if (editName) editName.value = this._draft.editName || "";
+
+    this.shadowRoot.querySelectorAll('input[name="edit-class"]').forEach((input) => {
+      input.checked = Number(input.value) === Number(this._draft.editClass || 1);
+    });
+
+    const classHelp = this.shadowRoot.querySelector(".dish-edit-panel .class-help");
+    if (classHelp) {
+      classHelp.textContent = this._classDescription(Number(this._draft.editClass || 1));
+    }
+
+    this.shadowRoot.querySelectorAll(".dish-list-item").forEach((item) => {
+      item.classList.toggle("selected", Number(item.dataset.id) === Number(this._draft.editId));
+    });
   }
 
   async _saveEditDish() {

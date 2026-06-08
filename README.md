@@ -100,13 +100,13 @@ Karte einmal als **Ressource** laden, sonst kennt das Dashboard
 
    | Feld | Wert |
    |---|---|
-   | URL | `/local/essen-planer-card.js?v=0.1.4` |
+   | URL | `/local/essen-planer-card.js?v=0.1.5` |
    | Ressourcentyp | `JavaScript-Modul` |
 
    In das URL-Feld wirklich nur den Pfad eintragen, also ohne `URL:` davor.
    Die Zahl hinter `?v=` ist nur für den Browser-Cache. Wenn diese URL schon
    einmal verwendet wurde und die Karte nicht lädt, einfach eine neue Zahl
-   nehmen, zum Beispiel `?v=0.1.5`.
+   nehmen, zum Beispiel `?v=0.1.6`.
 
 6. Speichern.
 7. Den Browser oder die Home-Assistant-App einmal neu laden.
@@ -192,7 +192,7 @@ geladen. Dann diese Punkte prüfen:
 
   | Feld | Wert |
   |---|---|
-  | URL | `/local/essen-planer-card.js?v=0.1.4` |
+  | URL | `/local/essen-planer-card.js?v=0.1.5` |
   | Ressourcentyp | `JavaScript-Modul` |
 
   Im URL-Feld darf nicht `URL:` oder `Typ:` stehen.
@@ -206,7 +206,7 @@ geladen. Dann diese Punkte prüfen:
 - Lässt sich diese Adresse im Browser öffnen?
 
   ```text
-  https://DEIN-HOME-ASSISTANT-IP:PORT/local/essen-planer-card.js?v=0.1.4
+  https://DEIN-HOME-ASSISTANT-IP:PORT/local/essen-planer-card.js?v=0.1.5
   ```
 
   Wenn dort JavaScript-Code erscheint, ist die Datei erreichbar. Dann die
@@ -219,7 +219,7 @@ geladen. Dann diese Punkte prüfen:
 - Wenn die Adresse zuerst `404` geliefert hat und nach dem Einrichten der
   Integration erst später funktioniert, den Wert hinter `?v=` erhöhen. Beispiel:
 
-  `/local/essen-planer-card.js?v=0.1.5`
+  `/local/essen-planer-card.js?v=0.1.6`
 
   Danach speichern und die Home-Assistant-Seite hart neu laden.
 
@@ -244,7 +244,7 @@ Beim Deaktivieren eines Gerichts wird es nicht gelöscht. Es bleibt in der Datei
 
 ## Hinweise
 
-- Wenn die Karte nach einem Update nicht neu geladen wird, die Version in der Ressource erhöhen, zum Beispiel `?v=0.1.5`.
+- Wenn die Karte nach einem Update nicht neu geladen wird, die Version in der Ressource erhöhen, zum Beispiel `?v=0.1.6`.
 - Wenn `custom:essen-planer-card` nicht gefunden wird, prüfen, ob die Ressource eingetragen ist und Home Assistant nach der Installation neu gestartet wurde.
 - Das Repository ist aktuell für die Nutzung als HACS Custom Repository gedacht, nicht als offizieller HACS-Store-Eintrag.
 - Wenn etwas bei der Installation/Konfiguration hakt, ist es immer ratsam mal HA neu zu starten. Oft liegt noch etwas falsches im Cache
