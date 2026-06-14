@@ -21,13 +21,26 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import ConfigType
 
 DOMAIN = "essen"
 DATA_MANAGER = "manager"
 SIGNAL_UPDATE = "essen_updated"
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.BUTTON, Platform.SENSOR]
 FRONTEND_URL = "/essen-planer"
+CARD_FILENAME = "essen-planer-card.js"
+CARD_RESOURCE_PATH = f"{FRONTEND_URL}/{CARD_FILENAME}"
+LEGACY_CARD_RESOURCE_PATH = f"/local/{CARD_FILENAME}"
+RESOURCE_REPAIR_MAX_ATTEMPTS = 6
+RESOURCE_REPAIR_RETRY_SECONDS = 5
+
+MANIFEST_PATH = Path(__file__).with_name("manifest.json")
+INTEGRATION_VERSION = json.loads(MANIFEST_PATH.read_text(encoding="utf-8")).get(
+    "version",
+    "0.0.0",
+)
+CARD_RESOURCE_URL = f"{CARD_RESOURCE_PATH}?v={INTEGRATION_VERSION}"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -460,6 +473,7 @@ class MealPlanner:
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the meal planner."""
     await async_register_frontend(hass)
+    async_schedule_frontend_resource_repair(hass)
 
     if config.get(DOMAIN) is not None:
         manager = await async_get_manager(hass)
@@ -474,6 +488,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     manager = await async_get_manager(hass)
     async_register_services(hass, manager)
     await async_register_frontend(hass)
+    async_schedule_frontend_resource_repair(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
@@ -489,16 +504,105 @@ async def async_register_frontend(hass: HomeAssistant) -> None:
     if hass.data[DOMAIN].get("frontend_registered"):
         return
 
-    await hass.http.async_register_static_paths(
-        [
-            StaticPathConfig(
-                FRONTEND_URL,
-                str(Path(__file__).with_name("frontend")),
-                False,
-            )
-        ]
-    )
+    try:
+        await hass.http.async_register_static_paths(
+            [
+                StaticPathConfig(
+                    FRONTEND_URL,
+                    str(Path(__file__).with_name("frontend")),
+                    False,
+                )
+            ]
+        )
+    except RuntimeError:
+        _LOGGER.debug("Frontend path already registered: %s", FRONTEND_URL)
     hass.data[DOMAIN]["frontend_registered"] = True
+
+
+def async_schedule_frontend_resource_repair(hass: HomeAssistant) -> None:
+    """Schedule automatic Lovelace resource repair after startup."""
+    hass.data.setdefault(DOMAIN, {})
+    if hass.data[DOMAIN].get("frontend_resource_repair_scheduled"):
+        return
+    hass.data[DOMAIN]["frontend_resource_repair_scheduled"] = True
+
+    async def repair_resource(_now=None, attempt: int = 1) -> None:
+        result = await async_repair_frontend_resource(hass)
+        if result.get("retry") and attempt < RESOURCE_REPAIR_MAX_ATTEMPTS:
+            async_call_later(
+                hass,
+                RESOURCE_REPAIR_RETRY_SECONDS,
+                lambda now: hass.add_job(repair_resource, now, attempt + 1),
+            )
+            return
+        hass.data[DOMAIN]["frontend_resource_repair_scheduled"] = False
+
+    async_call_later(hass, 1, lambda now: hass.add_job(repair_resource, now))
+
+
+async def async_repair_frontend_resource(hass: HomeAssistant) -> dict[str, Any]:
+    """Register or repair the Lovelace resource for the bundled dashboard card."""
+    await async_register_frontend(hass)
+    lovelace = hass.data.get("lovelace")
+    resources = getattr(lovelace, "resources", None)
+    if lovelace is None or resources is None:
+        _LOGGER.debug("Lovelace resources are not available yet")
+        return {"changed": False, "retry": True, "reason": "lovelace_unavailable"}
+
+    if getattr(lovelace, "mode", "storage") != "storage":
+        _LOGGER.info("Skipping Essensplaner resource repair because Lovelace is not in storage mode")
+        return {"changed": False, "retry": False, "reason": "lovelace_yaml_mode"}
+
+    if hasattr(resources, "loaded") and not resources.loaded:
+        await resources.async_load()
+
+    changed = False
+    items = list(resources.async_items())
+    matches = [item for item in items if _is_essen_card_resource(item)]
+    primary = next(
+        (item for item in matches if _resource_path(item.get("url")) == CARD_RESOURCE_PATH),
+        matches[0] if matches else None,
+    )
+
+    if primary is None:
+        _LOGGER.info("Registering Essensplaner dashboard resource %s", CARD_RESOURCE_URL)
+        primary = await resources.async_create_item(
+            {"res_type": "module", "url": CARD_RESOURCE_URL}
+        )
+        changed = True
+    elif primary.get("url") != CARD_RESOURCE_URL or primary.get("type") != "module":
+        _LOGGER.info("Updating Essensplaner dashboard resource to %s", CARD_RESOURCE_URL)
+        await resources.async_update_item(
+            primary["id"],
+            {"res_type": "module", "url": CARD_RESOURCE_URL},
+        )
+        changed = True
+
+    primary_id = primary["id"]
+    deleted = 0
+    for item in matches:
+        if item["id"] == primary_id:
+            continue
+        _LOGGER.info("Removing old Essensplaner dashboard resource %s", item.get("url"))
+        await resources.async_delete_item(item["id"])
+        deleted += 1
+        changed = True
+
+    return {
+        "changed": changed,
+        "retry": False,
+        "url": CARD_RESOURCE_URL,
+        "deleted": deleted,
+    }
+
+
+def _resource_path(url: Any) -> str:
+    return str(url or "").split("?", 1)[0]
+
+
+def _is_essen_card_resource(resource: dict[str, Any]) -> bool:
+    path = _resource_path(resource.get("url"))
+    return path in {CARD_RESOURCE_PATH, LEGACY_CARD_RESOURCE_PATH}
 
 
 async def async_get_manager(hass: HomeAssistant) -> MealPlanner:

@@ -64,7 +64,7 @@ class EssenBaseSensor(SensorEntity):
         )
 
     def _handle_update(self) -> None:
-        self.async_schedule_update_ha_state(True)
+        self.hass.add_job(self.async_schedule_update_ha_state, True)
 
     @property
     def native_value(self) -> str | None:

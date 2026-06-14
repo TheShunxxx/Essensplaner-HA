@@ -84,36 +84,45 @@ Bei Home Assistant Container oder Home Assistant Core wird HACS nicht über ein 
 
 Beim ersten Start legt die Integration Beispieldaten an.
 
+### Essensplaner aktualisieren
+
+1. HACS öffnen.
+2. Nachsehen, ob der Essensplaner unter `Ausstehende Aktualisierungen` angezeigt wird.
+
+   ![HACS zeigt den Essensplaner unter Ausstehende Aktualisierungen](images/hacs-update-available.svg)
+
+3. Wenn kein Update angezeigt wird, oben rechts das Drei-Punkte-Menü öffnen und `Informationen aktualisieren` auswählen.
+4. Wenn der Essensplaner danach unter `Ausstehende Aktualisierungen` steht, beim Essensplaner das Drei-Punkte-Menü öffnen.
+5. `Erneut herunterladen` auswählen.
+6. Home Assistant neu starten.
+7. Danach die Home-Assistant-Seite oder App einmal neu laden.
+
 ## Dashboard einrichten
 
-### Ressource eintragen
+### Dashboard-Karte
 
-Der Essensplaner nutzt eine eigene Dashboard-Karte. Home Assistant muss diese
-Karte einmal als **Ressource** laden, sonst kennt das Dashboard
-`custom:essen-planer-card` nicht.
+Der Essensplaner nutzt eine eigene Dashboard-Karte. Die Ressource für diese
+Karte wird beim Start der Integration automatisch eingerichtet.
 
-1. In Home Assistant `Einstellungen -> Dashboards` öffnen.
-2. Oben rechts das Drei-Punkte-Menü öffnen.
-3. `Ressourcen` auswählen.
-4. `Ressource hinzufügen` auswählen.
-5. Diese Werte eintragen:
+Normalerweise musst du unter `Einstellungen -> Dashboards -> Ressourcen` nichts
+von Hand anlegen oder ändern.
 
-   | Feld | Wert |
-   |---|---|
-   | URL | `/local/essen-planer-card.js?v=0.1.5` |
-   | Ressourcentyp | `JavaScript-Modul` |
+Wenn die Karte nach einem Update nicht geladen wird:
 
-   In das URL-Feld wirklich nur den Pfad eintragen, also ohne `URL:` davor.
-   Die Zahl hinter `?v=` ist nur für den Browser-Cache. Wenn diese URL schon
-   einmal verwendet wurde und die Karte nicht lädt, einfach eine neue Zahl
-   nehmen, zum Beispiel `?v=0.1.6`.
+1. `Einstellungen -> Geräte & Dienste` öffnen.
+2. Die Integration `Essensplaner` öffnen.
+3. Unter `Entitäten` den Button `Essensplaner Frontend reparieren` drücken.
+4. Home Assistant neu starten.
+5. Die Home-Assistant-Seite oder App einmal neu laden.
 
-6. Speichern.
-7. Den Browser oder die Home-Assistant-App einmal neu laden.
+Bei Dashboards im YAML-Modus kann Home Assistant Ressourcen nicht automatisch
+eintragen. Dann muss diese Ressource in der YAML-Konfiguration stehen:
 
-Wenn `Ressourcen` nicht sichtbar ist, im eigenen Benutzerprofil den
-`Erweiterten Modus` aktivieren und danach erneut unter `Einstellungen -> Dashboards`
-nachsehen.
+```yaml
+resources:
+  - url: /essen-planer/essen-planer-card.js?v=0.1.6
+    type: module
+```
 
 ### Views anlegen
 
@@ -181,32 +190,21 @@ Nach dem Speichern der Views:
 3. Den Tab `Essen` öffnen.
 
 Wenn dort `Konfigurationsfehler` oder `Custom element doesn't exist:
-essen-planer-card` steht, ist meistens die Dashboard-Ressource noch nicht
-geladen. Dann diese Punkte prüfen:
+essen-planer-card` steht, ist meistens die Dashboard-Karte noch nicht geladen.
+Dann diese Punkte prüfen:
 
 - Wurde die Integration nach der HACS-Installation wirklich unter
   `Einstellungen -> Geräte & Dienste -> Integration hinzufügen -> Essensplaner`
   hinzugefügt?
-- Ist die Ressource unter `Einstellungen -> Dashboards -> Ressourcen`
-  eingetragen und als `JavaScript-Modul` gespeichert?
-
-  | Feld | Wert |
-  |---|---|
-  | URL | `/local/essen-planer-card.js?v=0.1.5` |
-  | Ressourcentyp | `JavaScript-Modul` |
-
-  Im URL-Feld darf nicht `URL:` oder `Typ:` stehen.
-  Der Wert hinter `?v=` muss nicht zur Integrationsversion passen. Er muss nur
-  neu sein, wenn der Browser oder die Home-Assistant-App noch eine alte Datei
-  im Cache hat.
-
-  Alte Einträge mit anderen Versionen oder mit `/essen-planer/essen-planer-card.js`
-  sollten entfernt werden.
+- Wurde Home Assistant nach Installation oder Update neu gestartet?
+- Unter `Einstellungen -> Geräte & Dienste -> Essensplaner -> Entitäten` den
+  Button `Essensplaner Frontend reparieren` drücken, danach Home Assistant neu
+  starten und die Seite oder App neu laden.
 
 - Lässt sich diese Adresse im Browser öffnen?
 
   ```text
-  https://DEIN-HOME-ASSISTANT-IP:PORT/local/essen-planer-card.js?v=0.1.5
+  https://DEIN-HOME-ASSISTANT-IP:PORT/essen-planer/essen-planer-card.js?v=0.1.6
   ```
 
   Wenn dort JavaScript-Code erscheint, ist die Datei erreichbar. Dann die
@@ -215,13 +213,6 @@ geladen. Dann diese Punkte prüfen:
   Wenn dort `404` oder `Not found` erscheint, ist die Integration noch nicht
   geladen oder Home Assistant wurde nach der Installation noch nicht neu
   gestartet.
-
-- Wenn die Adresse zuerst `404` geliefert hat und nach dem Einrichten der
-  Integration erst später funktioniert, den Wert hinter `?v=` erhöhen. Beispiel:
-
-  `/local/essen-planer-card.js?v=0.1.6`
-
-  Danach speichern und die Home-Assistant-Seite hart neu laden.
 
 ## Daten
 
@@ -232,19 +223,18 @@ Die Daten liegen lokal in deinem Home-Assistant-Konfigurationsordner:
 /config/essen/wochenplaene.json
 ```
 
-Die Integration veröffentlicht zusätzlich aktuelle Kopien für die Dashboard-Karte:
+Die Integration veröffentlicht zusätzlich aktuelle Daten für die Dashboard-Karte:
 
 ```text
 /config/www/essen-gerichte.json
 /config/www/essen-wochenplaene.json
-/config/www/essen-planer-card.js
 ```
 
 Beim Deaktivieren eines Gerichts wird es nicht gelöscht. Es bleibt in der Datei erhalten, wird aber nicht mehr für neue Pläne verwendet.
 
 ## Hinweise
 
-- Wenn die Karte nach einem Update nicht neu geladen wird, die Version in der Ressource erhöhen, zum Beispiel `?v=0.1.6`.
-- Wenn `custom:essen-planer-card` nicht gefunden wird, prüfen, ob die Ressource eingetragen ist und Home Assistant nach der Installation neu gestartet wurde.
+- Wenn die Karte nach einem Update nicht neu geladen wird, den Button `Essensplaner Frontend reparieren` drücken und Home Assistant neu starten.
+- Wenn `custom:essen-planer-card` nicht gefunden wird, prüfen, ob die Integration eingerichtet wurde und Home Assistant nach Installation oder Update neu gestartet wurde.
 - Das Repository ist aktuell für die Nutzung als HACS Custom Repository gedacht, nicht als offizieller HACS-Store-Eintrag.
 - Wenn etwas bei der Installation/Konfiguration hakt, ist es immer ratsam mal HA neu zu starten. Oft liegt noch etwas falsches im Cache
