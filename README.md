@@ -5,7 +5,8 @@ Ein Essensplaner für Home Assistant mit Wochenplan, Gerichteliste und einfachen
 ## Funktionen
 
 - Wochenplan für Montag bis Sonntag erstellen
-- Plan für diese oder nächste Woche generieren
+- zwischen Wochen wechseln, ohne automatisch einen neuen Plan zu erstellen
+- Plan für die ausgewählte Woche generieren
 - einzelne Tage neu würfeln
 - Tage leeren oder frei überschreiben
 - Gericht aus einer suchbaren Liste auswählen
@@ -109,9 +110,9 @@ von Hand anlegen oder ändern.
 
 Wenn die Karte nach einem Update nicht geladen wird:
 
-1. `Einstellungen -> Geräte & Dienste` öffnen.
-2. Die Integration `Essensplaner` öffnen.
-3. Unter `Entitäten` den Button `Essensplaner Frontend reparieren` drücken.
+1. `Einstellungen -> Geräte & Dienste -> Entitäten` öffnen.
+2. Nach `Essensplaner Frontend reparieren` suchen.
+3. Die Entität öffnen und den Button drücken.
 4. Home Assistant neu starten.
 5. Die Home-Assistant-Seite oder App einmal neu laden.
 
@@ -120,7 +121,7 @@ eintragen. Dann muss diese Ressource in der YAML-Konfiguration stehen:
 
 ```yaml
 resources:
-  - url: /essen-planer/essen-planer-card.js?v=0.1.6
+  - url: /essen-planer/essen-planer-card.js?v=0.1.12
     type: module
 ```
 
@@ -197,14 +198,14 @@ Dann diese Punkte prüfen:
   `Einstellungen -> Geräte & Dienste -> Integration hinzufügen -> Essensplaner`
   hinzugefügt?
 - Wurde Home Assistant nach Installation oder Update neu gestartet?
-- Unter `Einstellungen -> Geräte & Dienste -> Essensplaner -> Entitäten` den
-  Button `Essensplaner Frontend reparieren` drücken, danach Home Assistant neu
-  starten und die Seite oder App neu laden.
+- Unter `Einstellungen -> Geräte & Dienste -> Entitäten` nach
+  `Essensplaner Frontend reparieren` suchen, den Button drücken, danach Home
+  Assistant neu starten und die Seite oder App neu laden.
 
 - Lässt sich diese Adresse im Browser öffnen?
 
   ```text
-  https://DEIN-HOME-ASSISTANT-IP:PORT/essen-planer/essen-planer-card.js?v=0.1.6
+  https://DEIN-HOME-ASSISTANT-IP:PORT/essen-planer/essen-planer-card.js?v=0.1.12
   ```
 
   Wenn dort JavaScript-Code erscheint, ist die Datei erreichbar. Dann die

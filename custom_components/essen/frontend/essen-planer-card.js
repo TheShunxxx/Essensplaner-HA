@@ -3,9 +3,25 @@ class EssenPlanerCard extends HTMLElement {
     this.config = config || {};
     this.mode = this.config.mode || "plan";
     this._draft = this._draft || {};
+    this._boundLocationHandler = this._boundLocationHandler || (() => this._handleLocationChange());
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
     }
+  }
+
+  connectedCallback() {
+    this.mode = this.mode || "plan";
+    this._draft = this._draft || {};
+    this._boundLocationHandler = this._boundLocationHandler || (() => this._handleLocationChange());
+    window.addEventListener("location-changed", this._boundLocationHandler);
+    window.addEventListener("popstate", this._boundLocationHandler);
+    this._lastLocationPath = window.location.pathname;
+    this._handleCurrentLocation();
+  }
+
+  disconnectedCallback() {
+    window.removeEventListener("location-changed", this._boundLocationHandler);
+    window.removeEventListener("popstate", this._boundLocationHandler);
   }
 
   set hass(hass) {
@@ -20,30 +36,85 @@ class EssenPlanerCard extends HTMLElement {
     this._render();
   }
 
+  _handleLocationChange() {
+    const path = window.location.pathname;
+    const previousPath = this._lastLocationPath;
+    this._lastLocationPath = path;
+    if (path === previousPath) return;
+    this._handleCurrentLocation();
+  }
+
+  _handleCurrentLocation() {
+    this._resetPlanWhenEntering();
+    this._refreshDishesWhenEnteringEdit();
+  }
+
+  _resetPlanWhenEntering() {
+    if (this.mode !== "plan" || !this._currentPathMatches("essen")) return;
+    const before = this._selectedPlanPeriod();
+    this._selectCurrentWeek();
+    const after = this._selectedPlanPeriod();
+    if (this._hass && (before.year !== after.year || before.week !== after.week)) {
+      this._render();
+    }
+  }
+
+  async _refreshDishesWhenEnteringEdit() {
+    if (this.mode !== "edit" || !this._currentPathMatches("essen-bearbeiten")) return;
+    const shared = this._readSharedDishes();
+    if (shared.revision > Number(this._draft.sharedDishesRevision || 0)) {
+      this._draft.fallbackDishes = shared.dishes;
+      this._draft.fallbackDishesLoaded = true;
+      this._draft.sharedDishesRevision = shared.revision;
+      if (this._hass) this._render();
+    }
+    const refreshed = await this._refreshDishesNow();
+    if (refreshed && this._hass && this._currentPathMatches("essen-bearbeiten")) {
+      this._render();
+    }
+  }
+
   getCardSize() {
     return this.mode === "plan" ? 8 : 7;
   }
 
   _ensureDraftDefaults() {
     const current = this._currentIsoWeek();
-    const plan = this._planAttrs();
-    if (this._draft.planYear == null) this._draft.planYear = plan.year || current.year;
-    if (this._draft.planWeek == null) this._draft.planWeek = plan.week || current.week;
-    if (this._draft.planTarget == null) this._draft.planTarget = "next";
+    if (this._draft.planYear == null) this._draft.planYear = current.year;
+    if (this._draft.planWeek == null) this._draft.planWeek = current.week;
     if (this._draft.newClass == null) this._draft.newClass = 1;
     if (this._draft.editClass == null) this._draft.editClass = 1;
     if (this._draft.editSearch == null) this._draft.editSearch = "";
   }
 
-  _planAttrs() {
+  _sensorPlanAttrs() {
     const sensorEntity = this._hass && this._hass.states && this._hass.states["sensor.essen_wochenplan"];
-    const sensor = sensorEntity && sensorEntity.attributes ? sensorEntity.attributes : {};
+    return sensorEntity && sensorEntity.attributes ? sensorEntity.attributes : {};
+  }
+
+  _planAttrs() {
+    const sensor = this._sensorPlanAttrs();
     if (!this._draft.fallbackPlansLoading && !this._draft.fallbackPlansLoaded) {
       this._loadPlansFallback();
     }
-    const plansData = this._draft.fallbackPlans || {};
-    const plan = plansData.plans && plansData.current_plan ? plansData.plans[plansData.current_plan] : null;
-    if (!plan) return sensor;
+    const period = this._selectedPlanPeriod();
+    const fallbackPlan = this._planForPeriod(period.year, period.week);
+    const sensorPlan =
+      Number(sensor.year) === Number(period.year) &&
+      Number(sensor.week) === Number(period.week) &&
+      Array.isArray(sensor.days)
+        ? sensor
+        : null;
+    const plan = fallbackPlan || sensorPlan;
+    if (!plan) {
+      const blankPlan = this._blankPlan(period.year, period.week);
+      return {
+        ...sensor,
+        ...blankPlan,
+        has_plan: false,
+        state: `KW ${blankPlan.week} / ${blankPlan.year}: kein Plan`,
+      };
+    }
     const filled = (plan.days || []).filter((day) => day.dish_name).length;
     return {
       ...sensor,
@@ -52,6 +123,7 @@ class EssenPlanerCard extends HTMLElement {
       week: plan.week,
       key: plan.key,
       days: plan.days || [],
+      has_plan: true,
       state: `KW ${plan.week} / ${plan.year}: ${filled}/7`,
     };
   }
@@ -63,12 +135,19 @@ class EssenPlanerCard extends HTMLElement {
 
   _activeDishes() {
     const sensorDishes = this._dishesAttrs().active_dishes || [];
+    const shared = this._readSharedDishes();
+    if (shared.revision > Number(this._draft.sharedDishesRevision || 0)) {
+      this._draft.fallbackDishes = shared.dishes;
+      this._draft.fallbackDishesLoaded = true;
+      this._draft.sharedDishesRevision = shared.revision;
+    }
     if (!this._draft.fallbackDishesLoading && !this._draft.fallbackDishesLoaded) {
       this._loadDishesFallback();
     }
-    const fallbackDishes = this._draft.fallbackDishesLoaded ? this._draft.fallbackDishes || [] : [];
-    const sharedDishes = this._readSharedDishes();
-    const source = fallbackDishes.length ? fallbackDishes : sharedDishes.length ? sharedDishes : sensorDishes;
+    const hasFallbackDishes = Array.isArray(this._draft.fallbackDishes);
+    const hasSharedDishes = shared.revision > 0 || shared.dishes.length > 0;
+    const fallbackDishes = Array.isArray(this._draft.fallbackDishes) ? this._draft.fallbackDishes : [];
+    const source = hasFallbackDishes ? fallbackDishes : hasSharedDishes ? shared.dishes : sensorDishes;
     return [...source].sort((a, b) =>
       String(a.name || "").localeCompare(String(b.name || ""), "de")
     );
@@ -86,6 +165,48 @@ class EssenPlanerCard extends HTMLElement {
     } finally {
       this._draft.fallbackDishesLoading = false;
     }
+  }
+
+  async _refreshDishesNow() {
+    this._draft.fallbackDishesLoading = true;
+    try {
+      this._draft.fallbackDishes = await this._fetchDishesFallback();
+      this._writeSharedDishes(this._draft.fallbackDishes);
+      this._draft.fallbackDishesLoaded = true;
+      return true;
+    } catch (error) {
+      this._draft.fallbackDishesLoaded = true;
+      return false;
+    } finally {
+      this._draft.fallbackDishesLoading = false;
+    }
+  }
+
+  _upsertLocalDish(dish) {
+    const dishes = Array.isArray(this._draft.fallbackDishes) ? [...this._draft.fallbackDishes] : [...this._activeDishes()];
+    const index = dishes.findIndex((entry) => Number(entry.id) === Number(dish.id));
+    if (index >= 0) {
+      dishes[index] = { ...dishes[index], ...dish };
+    } else {
+      dishes.push(dish);
+    }
+    this._draft.fallbackDishes = dishes.filter((entry) => entry.active !== false);
+    this._draft.fallbackDishesLoaded = true;
+    this._writeSharedDishes(this._draft.fallbackDishes);
+  }
+
+  _removeLocalDish(dishId) {
+    const dishes = Array.isArray(this._draft.fallbackDishes) ? this._draft.fallbackDishes : this._activeDishes();
+    this._draft.fallbackDishes = dishes.filter((dish) => Number(dish.id) !== Number(dishId));
+    this._draft.fallbackDishesLoaded = true;
+    this._writeSharedDishes(this._draft.fallbackDishes);
+  }
+
+  _dishNameExists(name, ignoreId = null) {
+    const wanted = this._searchText(name);
+    return this._activeDishes().some((dish) =>
+      Number(dish.id) !== Number(ignoreId) && this._searchText(dish.name) === wanted
+    );
   }
 
   async _loadPlansFallback() {
@@ -108,12 +229,6 @@ class EssenPlanerCard extends HTMLElement {
     return this._isoWeekFromDate(new Date());
   }
 
-  _nextIsoWeek() {
-    const date = new Date();
-    date.setDate(date.getDate() + 7);
-    return this._isoWeekFromDate(date);
-  }
-
   _isoWeekFromDate(sourceDate) {
     const date = new Date(Date.UTC(sourceDate.getFullYear(), sourceDate.getMonth(), sourceDate.getDate()));
     const day = date.getUTCDay() || 7;
@@ -123,8 +238,80 @@ class EssenPlanerCard extends HTMLElement {
     return { year: date.getUTCFullYear(), week };
   }
 
+  _planKey(year, week) {
+    return `${Number(year)}-W${String(Number(week)).padStart(2, "0")}`;
+  }
+
+  _planForPeriod(year, week) {
+    const plans = (this._draft.fallbackPlans && this._draft.fallbackPlans.plans) || {};
+    return plans[this._planKey(year, week)] || null;
+  }
+
+  _blankPlan(year, week) {
+    const monday = this._mondayForIsoWeek(year, week);
+    const dayDefs = [
+      ["montag", "Montag", 0],
+      ["dienstag", "Dienstag", 1],
+      ["mittwoch", "Mittwoch", 2],
+      ["donnerstag", "Donnerstag", 3],
+      ["freitag", "Freitag", 4],
+      ["samstag", "Samstag", 5],
+      ["sonntag", "Sonntag", 6],
+    ];
+    return {
+      key: this._planKey(year, week),
+      year: Number(year),
+      week: Number(week),
+      label: `KW ${Number(week)} / ${Number(year)}`,
+      days: dayDefs.map(([key, name, offset]) => {
+        const date = new Date(monday);
+        date.setUTCDate(date.getUTCDate() + offset);
+        return {
+          key,
+          name,
+          date: date.toISOString().slice(0, 10),
+          date_display: this._formatShortDate(date),
+          dish_id: null,
+          dish_name: "",
+          klasse: null,
+          custom: false,
+        };
+      }),
+    };
+  }
+
+  _mondayForIsoWeek(year, week) {
+    const fourthOfJanuary = new Date(Date.UTC(Number(year), 0, 4));
+    const day = fourthOfJanuary.getUTCDay() || 7;
+    const monday = new Date(fourthOfJanuary);
+    monday.setUTCDate(fourthOfJanuary.getUTCDate() - day + 1 + (Number(week) - 1) * 7);
+    return monday;
+  }
+
+  _formatShortDate(date) {
+    return `${String(date.getUTCDate()).padStart(2, "0")}.${String(date.getUTCMonth() + 1).padStart(2, "0")}.`;
+  }
+
   _selectedPlanPeriod() {
-    return this._draft.planTarget === "current" ? this._currentIsoWeek() : this._nextIsoWeek();
+    const current = this._currentIsoWeek();
+    return {
+      year: Number(this._draft.planYear || current.year),
+      week: Number(this._draft.planWeek || current.week),
+    };
+  }
+
+  _selectedWeekLabel(plan) {
+    const diffWeeks = this._selectedWeekOffset(plan);
+    if (diffWeeks === 0) return "Diese Woche";
+    if (diffWeeks === 1) return "Nächste Woche";
+    if (diffWeeks === -1) return "Letzte Woche";
+    return plan.label || `KW ${plan.week} / ${plan.year}`;
+  }
+
+  _selectedWeekOffset(plan = this._selectedPlanPeriod()) {
+    const selected = this._mondayForIsoWeek(plan.year, plan.week);
+    const current = this._mondayForIsoWeek(this._currentIsoWeek().year, this._currentIsoWeek().week);
+    return Math.round((selected - current) / (7 * 86400000));
   }
 
   _render() {
@@ -144,30 +331,42 @@ class EssenPlanerCard extends HTMLElement {
     const plan = this._planAttrs();
     const days = plan.days || [];
     const current = this._currentIsoWeek();
-    const hasPlan = days.length > 0 && plan.key;
+    const hasPlan = Boolean(plan.has_plan);
+    const selectedWeekLabel = this._selectedWeekLabel(plan);
+    const weekOffset = this._selectedWeekOffset(plan);
     return `
       <div class="shell">
         ${this._sidebar("plan")}
         <section class="panel plan-panel">
-          <div class="tab-label">Wochenplan erstellen</div>
+          <div class="tab-label">Wochenplan</div>
           <div class="plan-head">
             <div class="kw-line">
-              <span>Aktuelle Woche: <strong>KW ${current.week}</strong></span>
-              <label>Plan erstellen:</label>
-              <select class="plan-select" data-role="plan-target">
-                <option value="current" ${this._draft.planTarget === "current" ? "selected" : ""}>Diese Woche</option>
-                <option value="next" ${this._draft.planTarget !== "current" ? "selected" : ""}>Nächste Woche</option>
-              </select>
-              <button class="plain-button" data-action="create-plan">Plan erstellen</button>
+              <span>Aktuelle Woche: <strong>KW ${current.week} / ${current.year}</strong></span>
+              <span class="pipe">|</span>
+              <button class="icon-button week-button" title="Vorige Woche" data-action="prev-week" ${weekOffset <= -1 ? "disabled" : ""}>
+                <ha-icon icon="mdi:chevron-left"></ha-icon>
+              </button>
+              <strong class="selected-week">${this._escape(selectedWeekLabel)}</strong>
+              <button class="icon-button week-button" title="Nächste Woche" data-action="next-week" ${weekOffset >= 1 ? "disabled" : ""}>
+                <ha-icon icon="mdi:chevron-right"></ha-icon>
+              </button>
+              <button class="plain-button primary" data-action="create-plan">${hasPlan ? "Plan neu generieren" : "Plan generieren"}</button>
             </div>
           </div>
+          ${
+            hasPlan
+              ? ""
+              : `<div class="plan-notice">
+                  Für ${this._escape(plan.label)} gibt es noch keinen Plan. Du kannst die Tage manuell füllen oder einen Plan generieren.
+                </div>`
+          }
           <div class="days">
             ${
-              hasPlan
+              days.length
                 ? days.map((day) => this._dayRow(day)).join("")
                 : `<div class="empty-plan">
                     <strong>Noch kein Plan angelegt.</strong>
-                    <span>Wähle oben den Zeitraum aus und klicke auf „Plan erstellen“.</span>
+                    <span>Wähle oben eine Woche aus und klicke auf „Plan generieren“.</span>
                   </div>`
             }
           </div>
@@ -257,7 +456,7 @@ class EssenPlanerCard extends HTMLElement {
           <div class="class-help">${this._classDescription(Number(this._draft.newClass || 1))}</div>
           <div class="form-actions">
             <button class="plain-button primary" data-action="save-new">Gericht hinzufügen</button>
-            <button class="plain-button" data-action="go-main">Abbrechen</button>
+            <button class="plain-button" data-action="cancel-new">Abbrechen</button>
           </div>
         </section>
       </div>
@@ -305,7 +504,7 @@ class EssenPlanerCard extends HTMLElement {
       <aside class="sidebar">
         <button class="side-button ${active === "new" ? "active" : ""}" data-action="go-new">Neues Gericht</button>
         <button class="side-button ${active === "edit" ? "active" : ""}" data-action="go-edit">Gerichte bearbeiten</button>
-        <button class="side-button ${active === "plan" ? "active" : ""}" data-action="go-main">Wochenplan erstellen</button>
+        <button class="side-button ${active === "plan" ? "active" : ""}" data-action="go-main">Wochenplan</button>
       </aside>
     `;
   }
@@ -350,9 +549,6 @@ class EssenPlanerCard extends HTMLElement {
     }
     this.shadowRoot.querySelectorAll("input, textarea, select").forEach((element) => {
       element.addEventListener("input", (event) => this._handleInput(event));
-      if (element.dataset.role === "plan-target") {
-        element.addEventListener("change", (event) => this._handleInput(event));
-      }
       if (element.dataset.role === "edit-search") {
         element.addEventListener("keydown", (event) => {
           if (event.key === "Enter") {
@@ -382,10 +578,6 @@ class EssenPlanerCard extends HTMLElement {
   _handleInput(event) {
     const target = event.currentTarget;
     const role = target.dataset.role;
-    if (role === "plan-target") {
-      this._draft.planTarget = target.value;
-      this._render();
-    }
     if (role === "new-name") this._draft.newName = target.value;
     if (role === "edit-name") this._draft.editName = target.value;
     if (role === "edit-search") {
@@ -407,9 +599,12 @@ class EssenPlanerCard extends HTMLElement {
   async _handleAction(event) {
     const action = event.currentTarget.dataset.action;
     const day = event.currentTarget.dataset.day;
-    if (action === "go-main") return this._navigate(this._viewPath("essen"));
+    if (action === "go-main") return this._goMain();
     if (action === "go-new") return this._navigate(this._viewPath("essen-neu"));
     if (action === "go-edit") return this._navigate(this._viewPath("essen-bearbeiten"));
+    if (action === "cancel-new") return this._cancelNewDish();
+    if (action === "prev-week") return this._shiftSelectedWeek(-1);
+    if (action === "next-week") return this._shiftSelectedWeek(1);
     if (action === "create-plan") return this._createPlan();
     if (action === "reroll-day") return this._rerollDay(day);
     if (action === "clear-day") return this._clearDay(day);
@@ -426,12 +621,51 @@ class EssenPlanerCard extends HTMLElement {
     const period = this._selectedPlanPeriod();
     this._draft.planYear = period.year;
     this._draft.planWeek = period.week;
+    const existingPlan = this._planAttrs().has_plan;
+    if (existingPlan && !confirm(`Für KW ${period.week} / ${period.year} gibt es bereits einen Plan. Wirklich neu generieren?`)) {
+      return;
+    }
     this._clearDayDrafts();
     await this._callPlanner("create_plan", {
       year: period.year,
       week: period.week,
     });
     this._clearDayDrafts();
+  }
+
+  _shiftSelectedWeek(offset) {
+    const period = this._selectedPlanPeriod();
+    const monday = this._mondayForIsoWeek(period.year, period.week);
+    monday.setUTCDate(monday.getUTCDate() + offset * 7);
+    const next = this._isoWeekFromDate(monday);
+    const nextOffset = this._selectedWeekOffset(next);
+    if (nextOffset < -1 || nextOffset > 1) return;
+    this._draft.planYear = next.year;
+    this._draft.planWeek = next.week;
+    this._draft.pickerDay = null;
+    this._draft.pickerSearch = "";
+    this._clearDayDrafts();
+    this._render();
+  }
+
+  _goMain() {
+    this._selectCurrentWeek();
+    this._navigate(this._viewPath("essen"));
+  }
+
+  _selectCurrentWeek() {
+    const current = this._currentIsoWeek();
+    this._draft.planYear = current.year;
+    this._draft.planWeek = current.week;
+    this._draft.pickerDay = null;
+    this._draft.pickerSearch = "";
+    this._clearDayDrafts();
+  }
+
+  _cancelNewDish() {
+    this._draft.newName = "";
+    this._draft.newClass = 1;
+    this._render();
   }
 
   async _rerollDay(day) {
@@ -443,22 +677,35 @@ class EssenPlanerCard extends HTMLElement {
   }
 
   async _clearDay(day) {
+    if (!this._selectedPlanExists()) {
+      delete this._draft[`day-${day}`];
+      this._render();
+      return;
+    }
     this._draft[`day-${day}`] = "";
     await this._callPlanner("clear_day", this._planPayload({ day }));
   }
 
   async _saveDayInput(input) {
     const day = input.dataset.day;
-    const success = await this._callPlanner("set_day", this._planPayload({ day, dish_name: input.value.trim() }));
+    const value = input.value.trim();
+    if (!value && !this._selectedPlanExists()) {
+      delete this._draft[`day-${day}`];
+      this._render();
+      return;
+    }
+    const success = await this._callPlanner("set_day", this._planPayload({ day, dish_name: value }));
     if (success) {
       delete this._draft[`day-${day}`];
     }
   }
 
-  _openDayPicker(day) {
+  async _openDayPicker(day) {
     this._draft.pickerDay = day;
     this._draft.pickerSearch = "";
     this._render();
+    await this._refreshDishesNow();
+    this._refreshDayPickerList();
   }
 
   _closeDayPicker() {
@@ -482,12 +729,16 @@ class EssenPlanerCard extends HTMLElement {
   async _saveNewDish() {
     const name = String(this._draft.newName || "").trim();
     if (!name) return this._notify("Bitte einen Namen eingeben.");
+    if (this._dishNameExists(name)) {
+      return this._notify("Dieses Gericht gibt es bereits.");
+    }
     const success = await this._callPlanner("add_dish", {
       name,
       klasse: Number(this._draft.newClass || 1),
     });
     if (success) {
-      await this._waitForDishInFallback(name);
+      const dish = await this._waitForDishInFallback(name);
+      if (dish) this._upsertLocalDish(dish);
       this._draft.newName = "";
       this._notify("Gericht hinzugefügt.");
       this._render();
@@ -534,12 +785,22 @@ class EssenPlanerCard extends HTMLElement {
     if (!this._draft.editId) return this._notify("Bitte ein Gericht auswählen.");
     const name = String(this._draft.editName || "").trim();
     if (!name) return this._notify("Bitte einen Namen eingeben.");
+    if (this._dishNameExists(name, this._draft.editId)) {
+      return this._notify("Dieses Gericht gibt es bereits.");
+    }
+    const updatedDish = {
+      id: Number(this._draft.editId),
+      name,
+      klasse: Number(this._draft.editClass || 1),
+      active: true,
+    };
     const success = await this._callPlanner("update_dish", {
       dish_id: Number(this._draft.editId),
       name,
       klasse: Number(this._draft.editClass || 1),
     });
     if (success) {
+      this._upsertLocalDish(updatedDish);
       this._notify("Gericht aktualisiert.");
       this._refreshEditList();
     }
@@ -553,6 +814,7 @@ class EssenPlanerCard extends HTMLElement {
       dish_id: Number(this._draft.editId),
     });
     if (success) {
+      this._removeLocalDish(deletedId);
       this._draft.editSearch = "";
       const nextDish = this._activeDishes().find((dish) => Number(dish.id) !== deletedId);
       if (nextDish) {
@@ -576,6 +838,10 @@ class EssenPlanerCard extends HTMLElement {
     };
   }
 
+  _selectedPlanExists() {
+    return Boolean(this._planAttrs().has_plan);
+  }
+
   async _callPlanner(service, data) {
     try {
       await this._hass.callService("essen", service, data);
@@ -583,7 +849,7 @@ class EssenPlanerCard extends HTMLElement {
       this._draft.fallbackDishesLoaded = false;
       this._draft.fallbackPlansLoaded = false;
       await Promise.all([
-        this._loadDishesFallback(),
+        this._refreshDishesNow(),
         this._loadPlansFallback(),
       ]);
       await this._hass.callService("homeassistant", "update_entity", {
@@ -591,9 +857,15 @@ class EssenPlanerCard extends HTMLElement {
       }).catch(() => undefined);
       return true;
     } catch (error) {
-      this._notify((error && error.message) || String(error));
+      this._notify(this._errorMessage(error));
       return false;
     }
+  }
+
+  _errorMessage(error) {
+    const message = (error && error.message) || String(error);
+    if (message.includes("Dieses Gericht gibt es bereits")) return "Dieses Gericht gibt es bereits.";
+    return message;
   }
 
   _filteredEditDishes(dishes = this._activeDishes()) {
@@ -669,28 +941,39 @@ class EssenPlanerCard extends HTMLElement {
         this._draft.fallbackDishes = dishes;
         this._draft.fallbackDishesLoaded = true;
         this._writeSharedDishes(dishes);
-        if (dishes.some((dish) => this._searchText(dish.name) === wanted)) return true;
+        const dish = dishes.find((entry) => this._searchText(entry.name) === wanted);
+        if (dish) return dish;
       } catch (error) {
         // Retry below; the file can briefly be between writes.
       }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
-    return false;
+    return null;
   }
 
   _readSharedDishes() {
     try {
       const raw = window.localStorage.getItem("essen-planer-active-dishes");
+      if (!raw) return { dishes: [], revision: 0 };
       const data = JSON.parse(raw || "[]");
-      return Array.isArray(data) ? data : [];
+      if (Array.isArray(data)) return { dishes: data, revision: 0 };
+      return {
+        dishes: Array.isArray(data.dishes) ? data.dishes : [],
+        revision: Number(data.revision || 0),
+      };
     } catch (error) {
-      return [];
+      return { dishes: [], revision: 0 };
     }
   }
 
   _writeSharedDishes(dishes) {
     try {
-      window.localStorage.setItem("essen-planer-active-dishes", JSON.stringify(dishes || []));
+      const revision = Math.max(Date.now(), Number(this._draft.sharedDishesRevision || 0) + 1);
+      this._draft.sharedDishesRevision = revision;
+      window.localStorage.setItem("essen-planer-active-dishes", JSON.stringify({
+        revision,
+        dishes: dishes || [],
+      }));
     } catch (error) {
       // Storage can be unavailable in restricted browser modes.
     }
@@ -709,6 +992,11 @@ class EssenPlanerCard extends HTMLElement {
   _dashboardBasePath() {
     const firstSegment = window.location.pathname.split("/").filter(Boolean)[0];
     return firstSegment ? `/${firstSegment}` : "/lovelace";
+  }
+
+  _currentPathMatches(view) {
+    const normalize = (path) => String(path || "").replace(/\/+$/, "") || "/";
+    return normalize(window.location.pathname) === normalize(this._viewPath(view));
   }
 
   _notify(message) {
@@ -810,6 +1098,13 @@ class EssenPlanerCard extends HTMLElement {
       .pipe {
         color: var(--primary-color);
       }
+      .selected-week {
+        min-width: 122px;
+        text-align: center;
+      }
+      .week-button {
+        width: 34px;
+      }
       .plan-select,
       .text-input {
         color: var(--primary-text-color);
@@ -841,6 +1136,15 @@ class EssenPlanerCard extends HTMLElement {
         flex-direction: column;
         gap: 11px;
         margin-top: 8px;
+      }
+      .plan-notice {
+        margin: 0 0 14px;
+        padding: 10px 12px;
+        border: 1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));
+        border-radius: 4px;
+        color: var(--secondary-text-color);
+        background: color-mix(in srgb, var(--primary-color) 8%, transparent);
+        font-weight: 600;
       }
       .day-row {
         display: grid;
@@ -878,6 +1182,10 @@ class EssenPlanerCard extends HTMLElement {
       }
       .icon-button ha-icon {
         color: var(--secondary-text-color);
+      }
+      .icon-button:disabled {
+        cursor: default;
+        opacity: 0.35;
       }
       .icon-button.danger ha-icon,
       .danger {
@@ -1040,6 +1348,6 @@ if (!customElements.get("essen-planer-card")) {
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "essen-planer-card",
-  name: "Essensplanung",
+  name: "Essensplaner",
   description: "Essensplaner mit Wochenplan, Gerichten und Regeln",
 });

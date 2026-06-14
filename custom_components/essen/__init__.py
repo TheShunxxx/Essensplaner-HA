@@ -195,6 +195,11 @@ class MealPlanner:
         with self._lock:
             data = self._load_dishes_data()
             dishes = data.setdefault("dishes", [])
+            if any(
+                dish.get("active", True) and _normalize(dish.get("name")) == _normalize(name)
+                for dish in dishes
+            ):
+                raise ValueError("Dieses Gericht gibt es bereits.")
             next_id = max((int(dish.get("id", 0)) for dish in dishes), default=0) + 1
             dish = {"id": next_id, "name": name, "klasse": int(klasse), "active": True}
             dishes.append(dish)
@@ -212,8 +217,17 @@ class MealPlanner:
             data = self._load_dishes_data()
             for dish in data.get("dishes", []):
                 if int(dish.get("id", 0)) == int(dish_id):
-                    if name is not None and str(name).strip():
-                        dish["name"] = str(name).strip()
+                    new_name = str(name).strip() if name is not None else None
+                    if new_name:
+                        normalized = _normalize(new_name)
+                        if any(
+                            other is not dish
+                            and other.get("active", True)
+                            and _normalize(other.get("name")) == normalized
+                            for other in data.get("dishes", [])
+                        ):
+                            raise ValueError("Dieses Gericht gibt es bereits.")
+                        dish["name"] = new_name
                     if klasse is not None:
                         dish["klasse"] = int(klasse)
                     if active is not None:
@@ -479,7 +493,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         manager = await async_get_manager(hass)
         async_register_services(hass, manager)
 
-    _LOGGER.info("Essensplanung loaded")
+    _LOGGER.info("Essensplaner loaded")
     return True
 
 
