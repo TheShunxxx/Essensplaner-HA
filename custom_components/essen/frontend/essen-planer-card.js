@@ -316,6 +316,7 @@ class EssenPlanerCard extends HTMLElement {
 
   _render() {
     if (!this._hass) return;
+    const renderState = this._captureRenderState();
     this.shadowRoot.innerHTML = `
       <style>${this._styles()}</style>
       <ha-card>
@@ -325,6 +326,24 @@ class EssenPlanerCard extends HTMLElement {
       </ha-card>
     `;
     this._bindEvents();
+    this._restoreRenderState(renderState);
+  }
+
+  _captureRenderState() {
+    const editList = this.shadowRoot && this.shadowRoot.querySelector(".dish-list");
+    return {
+      editListScrollTop: editList ? editList.scrollTop : null,
+    };
+  }
+
+  _restoreRenderState(state) {
+    if (!state || state.editListScrollTop == null) return;
+    const restore = () => {
+      const editList = this.shadowRoot && this.shadowRoot.querySelector(".dish-list");
+      if (editList) editList.scrollTop = state.editListScrollTop;
+    };
+    restore();
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(restore);
   }
 
   _planView() {
@@ -893,8 +912,10 @@ class EssenPlanerCard extends HTMLElement {
   _refreshEditList() {
     const list = this.shadowRoot.querySelector(".dish-list");
     if (!list) return;
+    const scrollTop = list.scrollTop;
     list.innerHTML = this._editListHtml(this._filteredEditDishes());
     this._bindActions(list);
+    list.scrollTop = scrollTop;
   }
 
   _refreshDayPickerList() {

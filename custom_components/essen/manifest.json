@@ -1,7 +1,7 @@
 {
   "domain": "essen",
   "name": "Essensplaner",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "documentation": "https://github.com/ThomyieD/Essensplaner-HA",
   "issue_tracker": "https://github.com/ThomyieD/Essensplaner-HA/issues",
   "dependencies": ["frontend", "http"],

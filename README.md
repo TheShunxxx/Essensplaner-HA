@@ -121,7 +121,7 @@ eintragen. Dann muss diese Ressource in der YAML-Konfiguration stehen:
 
 ```yaml
 resources:
-  - url: /essen-planer/essen-planer-card.js?v=0.1.12
+  - url: /essen-planer/essen-planer-card.js?v=0.1.13
     type: module
 ```
 
@@ -205,7 +205,7 @@ Dann diese Punkte prüfen:
 - Lässt sich diese Adresse im Browser öffnen?
 
   ```text
-  https://DEIN-HOME-ASSISTANT-IP:PORT/essen-planer/essen-planer-card.js?v=0.1.12
+  https://DEIN-HOME-ASSISTANT-IP:PORT/essen-planer/essen-planer-card.js?v=0.1.13
   ```
 
   Wenn dort JavaScript-Code erscheint, ist die Datei erreichbar. Dann die
