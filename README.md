@@ -1,4 +1,5 @@
 # Essensplaner für Home Assistant
+(Basiert auf dem Essensplaner von ThomyieD — erweitert um Abendessen-Pool, Reste-Verwaltung und n8n-Import)
 
 Ein Essensplaner für Home Assistant mit Wochenplan, Gerichteliste und einfachen Regeln für aufwendigere Gerichte.
 
