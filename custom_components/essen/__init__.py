@@ -1,4 +1,12 @@
-"""Meal planner integration for Home Assistant."""
+"""Meal planner integration for Home Assistant – erweitert von TheShunxxx.
+
+Neue Features gegenüber Original (ThomyieD/Essensplaner-HA):
+  - Abendessen-Pool pro Woche (gesammelt, nicht tagesgenau)
+  - Reste-Verwaltung mit automatischem Ablaufdatum (+3 Tage)
+  - Services: abendessen_hinzufuegen, abendessen_entfernen,
+              reste_hinzufuegen, reste_entfernen, reste_alle_laden
+  - Typ-Feld ("Mittag" / "Abend") in Gerichte-Daten
+"""
 
 from __future__ import annotations
 
@@ -28,6 +36,7 @@ DOMAIN = "essen"
 DATA_MANAGER = "manager"
 SIGNAL_UPDATE = "essen_updated"
 PLATFORMS = [Platform.BUTTON, Platform.SENSOR]
+
 FRONTEND_URL = "/essen-planer"
 CARD_FILENAME = "essen-planer-card.js"
 CARD_RESOURCE_PATH = f"{FRONTEND_URL}/{CARD_FILENAME}"
@@ -37,8 +46,7 @@ RESOURCE_REPAIR_RETRY_SECONDS = 5
 
 MANIFEST_PATH = Path(__file__).with_name("manifest.json")
 INTEGRATION_VERSION = json.loads(MANIFEST_PATH.read_text(encoding="utf-8")).get(
-    "version",
-    "0.0.0",
+    "version", "0.0.0",
 )
 CARD_RESOURCE_URL = f"{CARD_RESOURCE_PATH}?v={INTEGRATION_VERSION}"
 
@@ -47,34 +55,27 @@ _LOGGER = logging.getLogger(__name__)
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Any(None, dict)}, extra=vol.ALLOW_EXTRA)
 
 DAY_ORDER = [
-    ("montag", "Montag", 0),
-    ("dienstag", "Dienstag", 1),
-    ("mittwoch", "Mittwoch", 2),
+    ("montag",     "Montag",     0),
+    ("dienstag",   "Dienstag",   1),
+    ("mittwoch",   "Mittwoch",   2),
     ("donnerstag", "Donnerstag", 3),
-    ("freitag", "Freitag", 4),
-    ("samstag", "Samstag", 5),
-    ("sonntag", "Sonntag", 6),
+    ("freitag",    "Freitag",    4),
+    ("samstag",    "Samstag",    5),
+    ("sonntag",    "Sonntag",    6),
 ]
 
 DAY_ALIASES = {
-    "sa": "samstag",
-    "samstag": "samstag",
-    "so": "sonntag",
-    "sonntag": "sonntag",
-    "mo": "montag",
-    "montag": "montag",
-    "di": "dienstag",
-    "dienstag": "dienstag",
-    "mi": "mittwoch",
-    "mittwoch": "mittwoch",
-    "do": "donnerstag",
-    "donnerstag": "donnerstag",
-    "fr": "freitag",
-    "freitag": "freitag",
+    "sa": "samstag", "samstag": "samstag",
+    "so": "sonntag", "sonntag": "sonntag",
+    "mo": "montag", "montag": "montag",
+    "di": "dienstag", "dienstag": "dienstag",
+    "mi": "mittwoch", "mittwoch": "mittwoch",
+    "do": "donnerstag", "donnerstag": "donnerstag",
+    "fr": "freitag", "freitag": "freitag",
 }
 
-YEAR = vol.All(vol.Coerce(int), vol.Range(min=2000, max=2100))
-WEEK = vol.All(vol.Coerce(int), vol.Range(min=1, max=53))
+YEAR   = vol.All(vol.Coerce(int), vol.Range(min=2000, max=2100))
+WEEK   = vol.All(vol.Coerce(int), vol.Range(min=1, max=53))
 KLASSE = vol.All(vol.Coerce(int), vol.Range(min=1, max=4))
 
 YEAR_WEEK_SCHEMA = {
@@ -82,6 +83,14 @@ YEAR_WEEK_SCHEMA = {
     vol.Optional("week"): WEEK,
 }
 
+# Ablaufdauer für Reste (Tage)
+RESTE_ABLAUF_TAGE_KUEHLSCHRANK = 3
+RESTE_ABLAUF_TAGE_EINGEFROREN  = 90
+
+
+# ---------------------------------------------------------------------------
+# Hilfsfunktionen
+# ---------------------------------------------------------------------------
 
 def _normalize(value: Any) -> str:
     text = str(value or "").strip().casefold()
@@ -97,36 +106,62 @@ def _display_date(value: date) -> str:
     return value.strftime("%d.%m.")
 
 
+# ---------------------------------------------------------------------------
+# MealPlanner – Kern-Klasse
+# ---------------------------------------------------------------------------
+
 class MealPlanner:
-    """Persist dishes and weekly plans in JSON files."""
+    """Persist dishes, weekly plans, evening pool and leftovers in JSON files."""
 
     def __init__(self, base_path: str) -> None:
-        self.base_path = Path(base_path)
-        self.dishes_file = self.base_path / "gerichte.json"
-        self.plans_file = self.base_path / "wochenplaene.json"
+        self.base_path          = Path(base_path)
+        self.dishes_file        = self.base_path / "gerichte.json"
+        self.plans_file         = self.base_path / "wochenplaene.json"
+        self.reste_file         = self.base_path / "reste.json"           # NEU
         self.public_dishes_file = self.base_path.parent / "www" / "essen-gerichte.json"
-        self.public_plans_file = self.base_path.parent / "www" / "essen-wochenplaene.json"
-        self.public_card_file = self.base_path.parent / "www" / "essen-planer-card.js"
+        self.public_plans_file  = self.base_path.parent / "www" / "essen-wochenplaene.json"
+        self.public_reste_file  = self.base_path.parent / "www" / "essen-reste.json"  # NEU
+        self.public_card_file   = self.base_path.parent / "www" / "essen-planer-card.js"
         self.default_dishes_file = Path(__file__).with_name("default_gerichte.json")
-        self.card_source_file = Path(__file__).with_name("frontend") / "essen-planer-card.js"
+        self.card_source_file   = Path(__file__).with_name("frontend") / "essen-planer-card.js"
         self._lock = RLock()
+
+    # ------------------------------------------------------------------
+    # Initialisierung
+    # ------------------------------------------------------------------
 
     def ensure_files(self) -> None:
         with self._lock:
             self.base_path.mkdir(parents=True, exist_ok=True)
+
+            # Gerichte
             if not self.dishes_file.exists():
                 dishes = self._read_json_file(self.default_dishes_file)
                 self._write_json_file(self.dishes_file, dishes)
+
+            # Wochenpläne
             if not self.plans_file.exists():
                 self._write_json_file(
                     self.plans_file,
                     {"version": 1, "current_plan": None, "plans": {}},
                 )
+
+            # Reste – NEU: leere Liste anlegen wenn nicht vorhanden
+            if not self.reste_file.exists():
+                self._write_json_file(self.reste_file, [])
+
             self._publish_dishes_data(self._load_dishes_data())
             self._publish_plans_data(self._load_plans())
+            self._publish_reste_data(self._load_reste())   # NEU
             self._publish_card_file()
 
-    def create_plan(self, year: int | None = None, week: int | None = None) -> dict[str, Any]:
+    # ------------------------------------------------------------------
+    # Wochenplan – Mittagessen (unverändertes Original-Verhalten)
+    # ------------------------------------------------------------------
+
+    def create_plan(
+        self, year: int | None = None, week: int | None = None
+    ) -> dict[str, Any]:
         with self._lock:
             year, week = self._resolve_year_week(year, week)
             plan = self._blank_plan(year, week)
@@ -138,10 +173,7 @@ class MealPlanner:
             return plan
 
     def reroll_day(
-        self,
-        day: str,
-        year: int | None = None,
-        week: int | None = None,
+        self, day: str, year: int | None = None, week: int | None = None
     ) -> dict[str, Any]:
         with self._lock:
             plan = self._get_or_create_plan(year, week)
@@ -177,10 +209,7 @@ class MealPlanner:
             return plan
 
     def clear_day(
-        self,
-        day: str,
-        year: int | None = None,
-        week: int | None = None,
+        self, day: str, year: int | None = None, week: int | None = None
     ) -> dict[str, Any]:
         with self._lock:
             plan = self._get_or_create_plan(year, week)
@@ -188,20 +217,158 @@ class MealPlanner:
             self._store_plan(plan)
             return plan
 
-    def add_dish(self, name: str, klasse: int) -> dict[str, Any]:
+    # ------------------------------------------------------------------
+    # Abendessen-Pool – NEU
+    # ------------------------------------------------------------------
+
+    def abendessen_hinzufuegen(
+        self,
+        gericht_name: str,
+        year: int | None = None,
+        week: int | None = None,
+    ) -> dict[str, Any]:
+        """Fügt ein Gericht zum Abendessen-Pool der aktuellen Woche hinzu."""
+        gericht_name = str(gericht_name or "").strip()
+        if not gericht_name:
+            raise ValueError("Bitte einen Gerichtnamen angeben.")
+        with self._lock:
+            year, week = self._resolve_year_week(year, week)
+            plans_data = self._load_plans()
+            key = _plan_key(year, week)
+
+            # Plan anlegen falls noch nicht vorhanden
+            if key not in plans_data.get("plans", {}):
+                plan = self._blank_plan(year, week)
+                plans_data.setdefault("plans", {})[key] = plan
+                plans_data["current_plan"] = key
+
+            plan = plans_data["plans"][key]
+            abendessen = plan.setdefault("abendessen", [])
+
+            # Doppelungen vermeiden
+            if any(_normalize(e) == _normalize(gericht_name) for e in abendessen):
+                raise ValueError(f"'{gericht_name}' ist bereits im Abendessen-Pool.")
+
+            abendessen.append(gericht_name)
+            plan["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            self._save_plans(plans_data)
+            return plan
+
+    def abendessen_entfernen(
+        self,
+        gericht_name: str,
+        year: int | None = None,
+        week: int | None = None,
+    ) -> dict[str, Any]:
+        """Entfernt ein Gericht aus dem Abendessen-Pool."""
+        gericht_name = str(gericht_name or "").strip()
+        with self._lock:
+            year, week = self._resolve_year_week(year, week)
+            plans_data = self._load_plans()
+            key = _plan_key(year, week)
+            plan = plans_data.get("plans", {}).get(key)
+            if plan is None:
+                raise ValueError("Kein Plan für diese Woche gefunden.")
+
+            abendessen = plan.get("abendessen", [])
+            new_list = [e for e in abendessen if _normalize(e) != _normalize(gericht_name)]
+            if len(new_list) == len(abendessen):
+                raise ValueError(f"'{gericht_name}' nicht im Abendessen-Pool gefunden.")
+
+            plan["abendessen"] = new_list
+            plan["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            self._save_plans(plans_data)
+            return plan
+
+    # ------------------------------------------------------------------
+    # Reste-Verwaltung – NEU
+    # ------------------------------------------------------------------
+
+    def reste_hinzufuegen(
+        self,
+        gericht_name: str,
+        portionen: str = "1",
+        ort: str = "Kühlschrank",
+        datum_gekocht: str | None = None,
+        ablauf_datum: str | None = None,
+    ) -> dict[str, Any]:
+        """Bucht ein Gericht als Reste ein.
+
+        Ablaufdatum wird automatisch berechnet:
+          Kühlschrank  → heute + 3 Tage
+          Eingefroren  → heute + 90 Tage
+        Kann aber auch manuell übergeben werden (ISO-Format YYYY-MM-DD).
+        """
+        gericht_name = str(gericht_name or "").strip()
+        if not gericht_name:
+            raise ValueError("Bitte einen Gerichtnamen angeben.")
+
+        today = date.today()
+        gekocht_date = today if datum_gekocht is None else date.fromisoformat(datum_gekocht)
+
+        if ablauf_datum is None:
+            tage = (
+                RESTE_ABLAUF_TAGE_EINGEFROREN
+                if _normalize(ort) == _normalize("Eingefroren")
+                else RESTE_ABLAUF_TAGE_KUEHLSCHRANK
+            )
+            ablauf = (today + timedelta(days=tage)).isoformat()
+        else:
+            ablauf = ablauf_datum
+
+        with self._lock:
+            reste = self._load_reste()
+            next_id = f"r-{(max((int(r['id'].split('-')[1]) for r in reste if r.get('id', '').startswith('r-')), default=0) + 1):03d}"
+            eintrag = {
+                "id":             next_id,
+                "gericht":        gericht_name,
+                "datum_gekocht":  gekocht_date.isoformat(),
+                "ablauf_datum":   ablauf,
+                "ort":            ort,
+                "portionen":      str(portionen),
+                "eingetragen_am": datetime.now().isoformat(timespec="seconds"),
+            }
+            reste.append(eintrag)
+            self._save_reste(reste)
+            return eintrag
+
+    def reste_entfernen(self, reste_id: str) -> list[dict[str, Any]]:
+        """Löscht einen Reste-Eintrag anhand seiner ID."""
+        reste_id = str(reste_id or "").strip()
+        with self._lock:
+            reste = self._load_reste()
+            new_reste = [r for r in reste if r.get("id") != reste_id]
+            if len(new_reste) == len(reste):
+                raise ValueError(f"Reste-Eintrag '{reste_id}' nicht gefunden.")
+            self._save_reste(new_reste)
+            return new_reste
+
+    def reste_alle_laden(self) -> list[dict[str, Any]]:
+        """Gibt alle aktuellen Reste zurück (für Sensoren/Frontend)."""
+        with self._lock:
+            return self._load_reste()
+
+    # ------------------------------------------------------------------
+    # Gerichte verwalten (unverändertes Original)
+    # ------------------------------------------------------------------
+
+    def add_dish(self, name: str, klasse: int, typ: str = "Mittag") -> dict[str, Any]:
+        """Neues Gericht anlegen. Typ: 'Mittag' oder 'Abend'."""
         name = str(name or "").strip()
+        typ  = str(typ or "Mittag").strip()
         if not name:
             raise ValueError("Bitte einen Gerichtnamen angeben.")
         with self._lock:
             data = self._load_dishes_data()
             dishes = data.setdefault("dishes", [])
             if any(
-                dish.get("active", True) and _normalize(dish.get("name")) == _normalize(name)
+                dish.get("active", True)
+                and _normalize(dish.get("name")) == _normalize(name)
                 for dish in dishes
             ):
                 raise ValueError("Dieses Gericht gibt es bereits.")
             next_id = max((int(dish.get("id", 0)) for dish in dishes), default=0) + 1
-            dish = {"id": next_id, "name": name, "klasse": int(klasse), "active": True}
+            dish = {"id": next_id, "name": name, "klasse": int(klasse), "typ": typ, "active": True}
             dishes.append(dish)
             self._save_dishes_data(data)
             return dish
@@ -212,6 +379,7 @@ class MealPlanner:
         name: str | None = None,
         klasse: int | None = None,
         active: bool | None = None,
+        typ: str | None = None,
     ) -> dict[str, Any]:
         with self._lock:
             data = self._load_dishes_data()
@@ -232,12 +400,18 @@ class MealPlanner:
                         dish["klasse"] = int(klasse)
                     if active is not None:
                         dish["active"] = bool(active)
+                    if typ is not None:
+                        dish["typ"] = str(typ).strip()
                     self._save_dishes_data(data)
                     return dish
-        raise ValueError(f"Gericht mit ID {dish_id} nicht gefunden.")
+            raise ValueError(f"Gericht mit ID {dish_id} nicht gefunden.")
 
     def deactivate_dish(self, dish_id: int) -> dict[str, Any]:
         return self.update_dish(dish_id=dish_id, active=False)
+
+    # ------------------------------------------------------------------
+    # Sensoren-Zusammenfassungen
+    # ------------------------------------------------------------------
 
     def plan_summary(self) -> dict[str, Any]:
         with self._lock:
@@ -246,16 +420,17 @@ class MealPlanner:
             if plan is None:
                 return {"state": "kein Plan", "days": [], "label": None}
             filled = sum(1 for day in plan["days"] if day.get("dish_name"))
-            label = f"KW {plan['week']} / {plan['year']}"
+            label  = f"KW {plan['week']} / {plan['year']}"
             return {
-                "state": f"{label}: {filled}/7",
-                "label": label,
-                "year": plan["year"],
-                "week": plan["week"],
-                "key": plan["key"],
-                "days": plan["days"],
-                "created_at": plan.get("created_at"),
-                "updated_at": plan.get("updated_at"),
+                "state":       f"{label}: {filled}/7",
+                "label":       label,
+                "year":        plan["year"],
+                "week":        plan["week"],
+                "key":         plan["key"],
+                "days":        plan["days"],
+                "abendessen":  plan.get("abendessen", []),   # NEU
+                "created_at":  plan.get("created_at"),
+                "updated_at":  plan.get("updated_at"),
             }
 
     def dishes_summary(self) -> dict[str, Any]:
@@ -263,48 +438,81 @@ class MealPlanner:
             dishes = self._load_dishes()
             active = [dish for dish in dishes if dish.get("active", True)]
             by_class = Counter(int(dish.get("klasse", 0)) for dish in active)
+            # NEU: nach Typ aufteilen
+            mittag = [d for d in active if d.get("typ", "Mittag") == "Mittag"]
+            abend  = [d for d in active if d.get("typ", "Mittag") == "Abend"]
             return {
-                "state": f"{len(active)} aktiv",
-                "active_count": len(active),
-                "total_count": len(dishes),
-                "by_class": dict(sorted(by_class.items())),
-                "active_dishes": active,
-                "all_dishes": dishes,
+                "state":          f"{len(active)} aktiv",
+                "active_count":   len(active),
+                "total_count":    len(dishes),
+                "by_class":       dict(sorted(by_class.items())),
+                "active_dishes":  active,
+                "mittag_dishes":  mittag,   # NEU
+                "abend_dishes":   abend,    # NEU
+                "all_dishes":     dishes,
             }
+
+    def reste_summary(self) -> dict[str, Any]:
+        """NEU: Sensor-Zusammenfassung für Reste."""
+        with self._lock:
+            reste = self._load_reste()
+            today = date.today()
+            ablaufend_heute = [
+                r for r in reste
+                if r.get("ablauf_datum") == today.isoformat()
+            ]
+            abgelaufen = [
+                r for r in reste
+                if r.get("ablauf_datum", "9999") < today.isoformat()
+            ]
+            return {
+                "state":            f"{len(reste)} Reste",
+                "anzahl":           len(reste),
+                "ablaufend_heute":  len(ablaufend_heute),
+                "abgelaufen":       len(abgelaufen),
+                "reste":            reste,
+            }
+
+    # ------------------------------------------------------------------
+    # Interne Hilfsmethoden – Wochenplan
+    # ------------------------------------------------------------------
 
     def _blank_plan(self, year: int, week: int) -> dict[str, Any]:
         monday = self._monday_for_week(year, week)
-        now = datetime.now().isoformat(timespec="seconds")
-        days = []
+        now    = datetime.now().isoformat(timespec="seconds")
+        days   = []
         for key, name, offset in DAY_ORDER:
             day_date = monday + timedelta(days=offset)
-            days.append(
-                {
-                    "key": key,
-                    "name": name,
-                    "date": day_date.isoformat(),
-                    "date_display": _display_date(day_date),
-                    "dish_id": None,
-                    "dish_name": "",
-                    "klasse": None,
-                }
-            )
+            days.append({
+                "key":          key,
+                "name":         name,
+                "date":         day_date.isoformat(),
+                "date_display": _display_date(day_date),
+                "dish_id":      None,
+                "dish_name":    "",
+                "klasse":       None,
+            })
         return {
-            "key": _plan_key(year, week),
-            "year": year,
-            "week": week,
+            "key":        _plan_key(year, week),
+            "year":       year,
+            "week":       week,
             "created_at": now,
             "updated_at": now,
-            "days": days,
+            "days":       days,
+            "abendessen": [],   # NEU: leerer Pool beim Erstellen
         }
 
-    def _get_or_create_plan(self, year: int | None, week: int | None) -> dict[str, Any]:
+    def _get_or_create_plan(
+        self, year: int | None, week: int | None
+    ) -> dict[str, Any]:
         year, week = self._resolve_year_week(year, week)
         plans_data = self._load_plans()
-        key = _plan_key(year, week)
+        key  = _plan_key(year, week)
         plan = plans_data.get("plans", {}).get(key)
         if plan is None:
             return self._blank_plan(year, week)
+        # Rückwärts-Kompatibilität: alten Plänen abendessen-Feld hinzufügen
+        plan.setdefault("abendessen", [])
         return plan
 
     def _store_plan(self, plan: dict[str, Any]) -> None:
@@ -315,18 +523,20 @@ class MealPlanner:
         self._save_plans(plans_data)
 
     def _current_plan(self, plans_data: dict[str, Any]) -> dict[str, Any] | None:
-        key = plans_data.get("current_plan")
+        key   = plans_data.get("current_plan")
         plans = plans_data.get("plans", {})
         if key in plans:
-            return plans[key]
+            plan = plans[key]
+            plan.setdefault("abendessen", [])
+            return plan
         if plans:
-            return plans[sorted(plans)[-1]]
+            plan = plans[sorted(plans)[-1]]
+            plan.setdefault("abendessen", [])
+            return plan
         return None
 
     def _resolve_year_week(
-        self,
-        year: int | None = None,
-        week: int | None = None,
+        self, year: int | None = None, week: int | None = None
     ) -> tuple[int, int]:
         if year is not None and week is not None:
             year = int(year)
@@ -354,8 +564,14 @@ class MealPlanner:
                 return day_entry
         raise ValueError(f"Tag {day} ist im Plan nicht vorhanden.")
 
-    def _pick_dish(self, day_key: str, plan: dict[str, Any]) -> dict[str, Any] | None:
-        dishes = [dish for dish in self._load_dishes() if dish.get("active", True)]
+    def _pick_dish(
+        self, day_key: str, plan: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        # Nur Mittagessen beim automatischen Befüllen
+        dishes = [
+            dish for dish in self._load_dishes()
+            if dish.get("active", True) and dish.get("typ", "Mittag") == "Mittag"
+        ]
         random.SystemRandom().shuffle(dishes)
         for dish in dishes:
             if self._dish_allowed(dish, day_key, plan):
@@ -363,12 +579,9 @@ class MealPlanner:
         return None
 
     def _dish_allowed(
-        self,
-        dish: dict[str, Any],
-        day_key: str,
-        plan: dict[str, Any],
+        self, dish: dict[str, Any], day_key: str, plan: dict[str, Any]
     ) -> bool:
-        dish_id = int(dish["id"])
+        dish_id  = int(dish["id"])
         used_ids = {
             int(day["dish_id"])
             for day in plan["days"]
@@ -376,7 +589,6 @@ class MealPlanner:
         }
         if dish_id in used_ids:
             return False
-
         klasse = int(dish.get("klasse", 0))
         counts = Counter(
             int(day["klasse"])
@@ -392,25 +604,25 @@ class MealPlanner:
         return True
 
     def _assign_dish(self, day_entry: dict[str, Any], dish: dict[str, Any]) -> None:
-        day_entry["dish_id"] = int(dish["id"])
+        day_entry["dish_id"]   = int(dish["id"])
         day_entry["dish_name"] = dish["name"]
-        day_entry["klasse"] = int(dish["klasse"])
-        day_entry["custom"] = False
+        day_entry["klasse"]    = int(dish["klasse"])
+        day_entry["custom"]    = False
 
     def _assign_custom(self, day_entry: dict[str, Any], value: str) -> None:
         if not value:
             self._clear_day(day_entry)
             return
-        day_entry["dish_id"] = None
+        day_entry["dish_id"]   = None
         day_entry["dish_name"] = value
-        day_entry["klasse"] = None
-        day_entry["custom"] = True
+        day_entry["klasse"]    = None
+        day_entry["custom"]    = True
 
     def _clear_day(self, day_entry: dict[str, Any]) -> None:
-        day_entry["dish_id"] = None
+        day_entry["dish_id"]   = None
         day_entry["dish_name"] = ""
-        day_entry["klasse"] = None
-        day_entry["custom"] = False
+        day_entry["klasse"]    = None
+        day_entry["custom"]    = False
 
     def _find_dish(
         self,
@@ -438,6 +650,27 @@ class MealPlanner:
             raise ValueError(f"Aktives Gericht '{dish_name}' nicht gefunden.")
         return None
 
+    # ------------------------------------------------------------------
+    # Interne Hilfsmethoden – Reste
+    # ------------------------------------------------------------------
+
+    def _load_reste(self) -> list[dict[str, Any]]:
+        if not self.reste_file.exists():
+            return []
+        return self._read_json_file(self.reste_file)
+
+    def _save_reste(self, reste: list[dict[str, Any]]) -> None:
+        self._write_json_file(self.reste_file, reste)
+        self._publish_reste_data(reste)
+
+    def _publish_reste_data(self, reste: list[dict[str, Any]]) -> None:
+        self.public_reste_file.parent.mkdir(parents=True, exist_ok=True)
+        self._write_json_file(self.public_reste_file, reste)
+
+    # ------------------------------------------------------------------
+    # Interne Hilfsmethoden – Gerichte
+    # ------------------------------------------------------------------
+
     def _load_dishes(self) -> list[dict[str, Any]]:
         return self._load_dishes_data().get("dishes", [])
 
@@ -452,6 +685,10 @@ class MealPlanner:
         self.public_dishes_file.parent.mkdir(parents=True, exist_ok=True)
         self._write_json_file(self.public_dishes_file, data)
 
+    # ------------------------------------------------------------------
+    # Interne Hilfsmethoden – Wochenpläne
+    # ------------------------------------------------------------------
+
     def _load_plans(self) -> dict[str, Any]:
         return self._read_json_file(self.plans_file)
 
@@ -463,20 +700,27 @@ class MealPlanner:
         self.public_plans_file.parent.mkdir(parents=True, exist_ok=True)
         self._write_json_file(self.public_plans_file, data)
 
+    # ------------------------------------------------------------------
+    # Interne Hilfsmethoden – Dateien
+    # ------------------------------------------------------------------
+
     def _publish_card_file(self) -> None:
         source = self.card_source_file.read_bytes()
         self.public_card_file.parent.mkdir(parents=True, exist_ok=True)
-        if self.public_card_file.exists() and self.public_card_file.read_bytes() == source:
+        if (
+            self.public_card_file.exists()
+            and self.public_card_file.read_bytes() == source
+        ):
             return
         tmp_path = self.public_card_file.with_suffix(self.public_card_file.suffix + ".tmp")
         tmp_path.write_bytes(source)
         tmp_path.replace(self.public_card_file)
 
-    def _read_json_file(self, path: Path) -> dict[str, Any]:
+    def _read_json_file(self, path: Path) -> Any:
         with path.open("r", encoding="utf-8") as handle:
             return json.load(handle)
 
-    def _write_json_file(self, path: Path, data: dict[str, Any]) -> None:
+    def _write_json_file(self, path: Path, data: Any) -> None:
         tmp_path = path.with_suffix(path.suffix + ".tmp")
         with tmp_path.open("w", encoding="utf-8") as handle:
             json.dump(data, handle, ensure_ascii=False, indent=2)
@@ -484,21 +728,21 @@ class MealPlanner:
         tmp_path.replace(path)
 
 
+# ---------------------------------------------------------------------------
+# HA Setup
+# ---------------------------------------------------------------------------
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the meal planner."""
     await async_register_frontend(hass)
     async_schedule_frontend_resource_repair(hass)
-
     if config.get(DOMAIN) is not None:
         manager = await async_get_manager(hass)
         async_register_services(hass, manager)
-
     _LOGGER.info("Essensplaner loaded")
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up the meal planner from a config entry."""
     manager = await async_get_manager(hass)
     async_register_services(hass, manager)
     await async_register_frontend(hass)
@@ -508,25 +752,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload the meal planner config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
 async def async_register_frontend(hass: HomeAssistant) -> None:
-    """Expose bundled dashboard assets."""
     hass.data.setdefault(DOMAIN, {})
     if hass.data[DOMAIN].get("frontend_registered"):
         return
-
     try:
         await hass.http.async_register_static_paths(
-            [
-                StaticPathConfig(
-                    FRONTEND_URL,
-                    str(Path(__file__).with_name("frontend")),
-                    False,
-                )
-            ]
+            [StaticPathConfig(FRONTEND_URL, str(Path(__file__).with_name("frontend")), False)]
         )
     except RuntimeError:
         _LOGGER.debug("Frontend path already registered: %s", FRONTEND_URL)
@@ -534,7 +769,6 @@ async def async_register_frontend(hass: HomeAssistant) -> None:
 
 
 def async_schedule_frontend_resource_repair(hass: HomeAssistant) -> None:
-    """Schedule automatic Lovelace resource repair after startup."""
     hass.data.setdefault(DOMAIN, {})
     if hass.data[DOMAIN].get("frontend_resource_repair_scheduled"):
         return
@@ -555,59 +789,44 @@ def async_schedule_frontend_resource_repair(hass: HomeAssistant) -> None:
 
 
 async def async_repair_frontend_resource(hass: HomeAssistant) -> dict[str, Any]:
-    """Register or repair the Lovelace resource for the bundled dashboard card."""
     await async_register_frontend(hass)
-    lovelace = hass.data.get("lovelace")
+    lovelace  = hass.data.get("lovelace")
     resources = getattr(lovelace, "resources", None)
     if lovelace is None or resources is None:
-        _LOGGER.debug("Lovelace resources are not available yet")
         return {"changed": False, "retry": True, "reason": "lovelace_unavailable"}
-
     if getattr(lovelace, "mode", "storage") != "storage":
-        _LOGGER.info("Skipping Essensplaner resource repair because Lovelace is not in storage mode")
         return {"changed": False, "retry": False, "reason": "lovelace_yaml_mode"}
-
     if hasattr(resources, "loaded") and not resources.loaded:
         await resources.async_load()
 
     changed = False
-    items = list(resources.async_items())
+    items   = list(resources.async_items())
     matches = [item for item in items if _is_essen_card_resource(item)]
     primary = next(
         (item for item in matches if _resource_path(item.get("url")) == CARD_RESOURCE_PATH),
         matches[0] if matches else None,
     )
-
     if primary is None:
-        _LOGGER.info("Registering Essensplaner dashboard resource %s", CARD_RESOURCE_URL)
         primary = await resources.async_create_item(
             {"res_type": "module", "url": CARD_RESOURCE_URL}
         )
         changed = True
     elif primary.get("url") != CARD_RESOURCE_URL or primary.get("type") != "module":
-        _LOGGER.info("Updating Essensplaner dashboard resource to %s", CARD_RESOURCE_URL)
         await resources.async_update_item(
-            primary["id"],
-            {"res_type": "module", "url": CARD_RESOURCE_URL},
+            primary["id"], {"res_type": "module", "url": CARD_RESOURCE_URL}
         )
         changed = True
 
     primary_id = primary["id"]
-    deleted = 0
+    deleted    = 0
     for item in matches:
         if item["id"] == primary_id:
             continue
-        _LOGGER.info("Removing old Essensplaner dashboard resource %s", item.get("url"))
         await resources.async_delete_item(item["id"])
         deleted += 1
         changed = True
 
-    return {
-        "changed": changed,
-        "retry": False,
-        "url": CARD_RESOURCE_URL,
-        "deleted": deleted,
-    }
+    return {"changed": changed, "retry": False, "url": CARD_RESOURCE_URL, "deleted": deleted}
 
 
 def _resource_path(url: Any) -> str:
@@ -620,7 +839,6 @@ def _is_essen_card_resource(resource: dict[str, Any]) -> bool:
 
 
 async def async_get_manager(hass: HomeAssistant) -> MealPlanner:
-    """Return the shared meal planner manager."""
     hass.data.setdefault(DOMAIN, {})
     manager = hass.data[DOMAIN].get(DATA_MANAGER)
     if manager is None:
@@ -630,8 +848,12 @@ async def async_get_manager(hass: HomeAssistant) -> MealPlanner:
     return manager
 
 
+# ---------------------------------------------------------------------------
+# Services registrieren
+# ---------------------------------------------------------------------------
+
 def async_register_services(hass: HomeAssistant, manager: MealPlanner) -> None:
-    """Register meal planner services once."""
+    """Registriert alle Essensplaner-Services (Original + Erweiterungen)."""
     if hass.data.setdefault(DOMAIN, {}).get("services_registered"):
         return
 
@@ -647,64 +869,97 @@ def async_register_services(hass: HomeAssistant, manager: MealPlanner) -> None:
     def service_handler(method_name: str):
         async def handle_service(call: ServiceCall) -> None:
             await call_manager(method_name, call)
-
         return handle_service
 
+    # --- Original-Services (unverändert) ---
+
     hass.services.async_register(
-        DOMAIN,
-        "create_plan",
+        DOMAIN, "create_plan",
         service_handler("create_plan"),
         schema=vol.Schema(YEAR_WEEK_SCHEMA),
     )
     hass.services.async_register(
-        DOMAIN,
-        "reroll_day",
+        DOMAIN, "reroll_day",
         service_handler("reroll_day"),
         schema=vol.Schema({vol.Required("day"): cv.string, **YEAR_WEEK_SCHEMA}),
     )
     hass.services.async_register(
-        DOMAIN,
-        "set_day",
+        DOMAIN, "set_day",
         service_handler("set_day"),
-        schema=vol.Schema(
-            {
-                vol.Required("day"): cv.string,
-                vol.Optional("dish_id"): vol.Coerce(int),
-                vol.Optional("dish_name"): cv.string,
-                **YEAR_WEEK_SCHEMA,
-            }
-        ),
+        schema=vol.Schema({
+            vol.Required("day"):          cv.string,
+            vol.Optional("dish_id"):      vol.Coerce(int),
+            vol.Optional("dish_name"):    cv.string,
+            **YEAR_WEEK_SCHEMA,
+        }),
     )
     hass.services.async_register(
-        DOMAIN,
-        "clear_day",
+        DOMAIN, "clear_day",
         service_handler("clear_day"),
         schema=vol.Schema({vol.Required("day"): cv.string, **YEAR_WEEK_SCHEMA}),
     )
     hass.services.async_register(
-        DOMAIN,
-        "add_dish",
+        DOMAIN, "add_dish",
         service_handler("add_dish"),
-        schema=vol.Schema({vol.Required("name"): cv.string, vol.Required("klasse"): KLASSE}),
+        schema=vol.Schema({
+            vol.Required("name"):          cv.string,
+            vol.Required("klasse"):        KLASSE,
+            vol.Optional("typ", default="Mittag"): cv.string,  # NEU
+        }),
     )
     hass.services.async_register(
-        DOMAIN,
-        "update_dish",
+        DOMAIN, "update_dish",
         service_handler("update_dish"),
-        schema=vol.Schema(
-            {
-                vol.Required("dish_id"): vol.Coerce(int),
-                vol.Optional("name"): cv.string,
-                vol.Optional("klasse"): KLASSE,
-                vol.Optional("active"): cv.boolean,
-            }
-        ),
+        schema=vol.Schema({
+            vol.Required("dish_id"):       vol.Coerce(int),
+            vol.Optional("name"):          cv.string,
+            vol.Optional("klasse"):        KLASSE,
+            vol.Optional("active"):        cv.boolean,
+            vol.Optional("typ"):           cv.string,   # NEU
+        }),
     )
     hass.services.async_register(
-        DOMAIN,
-        "deactivate_dish",
+        DOMAIN, "deactivate_dish",
         service_handler("deactivate_dish"),
         schema=vol.Schema({vol.Required("dish_id"): vol.Coerce(int)}),
+    )
+
+    # --- Neue Services: Abendessen-Pool ---
+
+    hass.services.async_register(
+        DOMAIN, "abendessen_hinzufuegen",
+        service_handler("abendessen_hinzufuegen"),
+        schema=vol.Schema({
+            vol.Required("gericht_name"): cv.string,
+            **YEAR_WEEK_SCHEMA,
+        }),
+    )
+    hass.services.async_register(
+        DOMAIN, "abendessen_entfernen",
+        service_handler("abendessen_entfernen"),
+        schema=vol.Schema({
+            vol.Required("gericht_name"): cv.string,
+            **YEAR_WEEK_SCHEMA,
+        }),
+    )
+
+    # --- Neue Services: Reste ---
+
+    hass.services.async_register(
+        DOMAIN, "reste_hinzufuegen",
+        service_handler("reste_hinzufuegen"),
+        schema=vol.Schema({
+            vol.Required("gericht_name"):              cv.string,
+            vol.Optional("portionen", default="1"):    cv.string,
+            vol.Optional("ort", default="Kühlschrank"): cv.string,
+            vol.Optional("datum_gekocht"):             cv.string,
+            vol.Optional("ablauf_datum"):              cv.string,
+        }),
+    )
+    hass.services.async_register(
+        DOMAIN, "reste_entfernen",
+        service_handler("reste_entfernen"),
+        schema=vol.Schema({vol.Required("reste_id"): cv.string}),
     )
 
     hass.data[DOMAIN]["services_registered"] = True
