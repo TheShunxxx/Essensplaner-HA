@@ -401,18 +401,51 @@ class EssenPlanerCard extends HTMLElement {
     `;
   }
 
-  _isPastNoonForDay(dayIso) {
-    // grey out days in the past; today greys out only after 12:00
+  _isPastNoonForDay(dayValue) {
+    // dayValue can be "YYYY-MM-DD" OR "DD.MM." (as in the UI)
     try {
       const now = new Date();
-      const todayIso = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString().slice(0, 10);
-      if (String(dayIso || "") < todayIso) return true;
-      if (String(dayIso || "") > todayIso) return false;
-      return now.getHours() >= 12;
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const noonPassed = now.getHours() >= 12;
+
+      let dayDate = null;
+
+      const s = String(dayValue || "").trim();
+
+      // ISO: YYYY-MM-DD
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        const [y, m, d] = s.split("-").map((x) => Number(x));
+        dayDate = new Date(y, m - 1, d);
+      }
+
+      // Short: DD.MM.
+      if (!dayDate && /^\d{2}\.\d{2}\.$/.test(s)) {
+        const dd = Number(s.slice(0, 2));
+        const mm = Number(s.slice(3, 5));
+
+        // year from currently selected plan week (most accurate for past/future)
+        const period = this._selectedPlanPeriod();
+        const weekMonday = this._mondayForIsoWeek(period.year, period.week);
+
+        // construct date in the plan's year
+        dayDate = new Date(weekMonday.getFullYear(), mm - 1, dd);
+      }
+
+      // if we can't parse it, do not grey out
+      if (!dayDate || isNaN(dayDate.getTime())) return false;
+
+      const dayOnly = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate());
+
+      if (dayOnly < today) return true;
+      if (dayOnly > today) return false;
+
+      // same day: grey only after noon
+      return noonPassed;
     } catch (e) {
       return false;
     }
   }
+
 
   _dayRow(day) {
     const draftValue = this._draft[`day-${day.key}`];
