@@ -401,51 +401,18 @@ class EssenPlanerCard extends HTMLElement {
     `;
   }
 
-  _isPastNoonForDay(dayValue) {
-    // dayValue can be "YYYY-MM-DD" OR "DD.MM." (as in the UI)
+  _isPastNoonForDay(dayIso) {
+    // grey out days in the past; today greys out only after 12:00
     try {
       const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const noonPassed = now.getHours() >= 12;
-
-      let dayDate = null;
-
-      const s = String(dayValue || "").trim();
-
-      // ISO: YYYY-MM-DD
-      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-        const [y, m, d] = s.split("-").map((x) => Number(x));
-        dayDate = new Date(y, m - 1, d);
-      }
-
-      // Short: DD.MM.
-      if (!dayDate && /^\d{2}\.\d{2}\.$/.test(s)) {
-        const dd = Number(s.slice(0, 2));
-        const mm = Number(s.slice(3, 5));
-
-        // year from currently selected plan week (most accurate for past/future)
-        const period = this._selectedPlanPeriod();
-        const weekMonday = this._mondayForIsoWeek(period.year, period.week);
-
-        // construct date in the plan's year
-        dayDate = new Date(weekMonday.getFullYear(), mm - 1, dd);
-      }
-
-      // if we can't parse it, do not grey out
-      if (!dayDate || isNaN(dayDate.getTime())) return false;
-
-      const dayOnly = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate());
-
-      if (dayOnly < today) return true;
-      if (dayOnly > today) return false;
-
-      // same day: grey only after noon
-      return noonPassed;
+      const todayIso = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString().slice(0, 10);
+      if (String(dayIso || "") < todayIso) return true;
+      if (String(dayIso || "") > todayIso) return false;
+      return now.getHours() >= 12;
     } catch (e) {
       return false;
     }
   }
-
 
   _dayRow(day) {
     const draftValue = this._draft[`day-${day.key}`];
@@ -567,6 +534,13 @@ class EssenPlanerCard extends HTMLElement {
                     <span>${this._escape(ortPretty || "")}</span>
                     ${r.portionen ? `<span>· ${this._escape(r.portionen)} Portion(en)</span>` : ""}
                     ${r.ablauf_datum ? `<span>· Ablauf ${this._escape(r.ablauf_datum)}</span>` : ""}
+                  </div>
+
+                  <div class="reste-portion-controls" aria-label="Portionen anpassen">
+                    <button class="chip" data-action="reste-delta" data-id="${this._escape(r.id)}" data-delta="-1">-1</button>
+                    <button class="chip" data-action="reste-delta" data-id="${this._escape(r.id)}" data-delta="-0.5">-0,5</button>
+                    <button class="chip" data-action="reste-delta" data-id="${this._escape(r.id)}" data-delta="0.5">+0,5</button>
+                    <button class="chip" data-action="reste-delta" data-id="${this._escape(r.id)}" data-delta="1">+1</button>
                   </div>
                 </div>
                 <button class="icon-button danger" title="Entfernen" data-action="reste-remove" data-id="${this._escape(r.id)}">
@@ -729,6 +703,16 @@ class EssenPlanerCard extends HTMLElement {
 
     if (action === "confirm-reste-dialog") { await this._confirmResteDialog(); return; }
 
+    if (action === "reste-delta") {
+      const id = event.currentTarget.dataset.id;
+      const delta = parseFloat(String(event.currentTarget.dataset.delta || "0"));
+      if (!id || !Number.isFinite(delta) || delta === 0) return;
+      await this._callPlanner("reste_portionen_aendern", { reste_id: id, delta });
+      this._draft.resteLoaded = false;
+      this._loadResteFallback();
+      return;
+    }
+
     // keep other existing actions in your repo version
   }
 
@@ -789,6 +773,12 @@ class EssenPlanerCard extends HTMLElement {
       .day-row--grey .plain-button {
         opacity: 0.65;
       }
+
+      /* Reste portion controls */
+      .reste-portion-controls { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+      .chip { border:1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); padding:6px 10px; border-radius:999px; font-weight:700; cursor:pointer; }
+      .chip:hover { border-color: var(--primary-color); }
+      .chip:focus { outline: 2px solid var(--primary-color); outline-offset: 2px; }
 
       /* overlays */
       .modal-backdrop { position: fixed; inset: 0; z-index: 9999; display:flex; align-items:center; justify-content:center; padding:18px; background: rgba(0,0,0,.5); box-sizing:border-box; }
