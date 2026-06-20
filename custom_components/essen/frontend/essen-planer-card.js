@@ -573,7 +573,7 @@ class EssenPlanerCard extends HTMLElement {
     if (!isAbend && !dayKey) return "";
 
     const plan = this._planAttrs();
-    const title = isAbend ? "Abendessen auswählen" : `${((plan.days || []).find((e) => e.key === dayKey) || { name: "Tag" }).name)} auswählen`;
+    const title = isAbend ? "Abendessen auswählen" : `${(((plan.days || []).find((e) => e.key === dayKey) || { name: "Tag" }).name) || "Tag")} auswählen`;
 
     const dishes = this._filteredDishesByTyp(this._draft.pickerSearch || "", isAbend ? "Abend" : "Mittag");
 
