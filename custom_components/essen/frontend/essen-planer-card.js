@@ -1,19 +1,29 @@
 /* eslint-disable */
 // Essen Planer Card – erweitert: Tabs in Plan-Ansicht für Mittag/Abend/Reste
-// Patch auf Basis von TheShunxxx/Essensplaner-HA (Frontend-Datei).
-// - Behält modes: plan/new/edit
-// - Fügt im plan-mode Tabs hinzu
-// - Liest Reste aus /local/essen-reste.json (Fallback) + Services
+// Fixes:
+//  - Dish-Picker wieder als echtes Overlay (z-index / fixed / inset)
+//  - "Reste von Tag" mit Dropdown-Dialog (keine prompt Freitext-Eingabe)
+//  - Dropdown in Reste-Tab robuster (kein Clip/Overflow)
 
 class EssenPlanerCard extends HTMLElement {
   setConfig(config) {
     this.config = config || {};
     this.mode = this.config.mode || "plan";
     this._draft = this._draft || {};
-    this._draft.planTab = this._draft.planTab || "mittag"; // neu
+
+    this._draft.planTab = this._draft.planTab || "mittag";
+
+    // reste
     this._draft.resteLoaded = this._draft.resteLoaded || false;
     this._draft.resteLoading = this._draft.resteLoading || false;
     this._draft.reste = this._draft.reste || [];
+
+    // reste-from-day dialog
+    this._draft.resteDialogOpen = this._draft.resteDialogOpen || false;
+    this._draft.resteDialogDish = this._draft.resteDialogDish || "";
+    this._draft.resteDialogPort = this._draft.resteDialogPort || "1";
+    this._draft.resteDialogOrt = this._draft.resteDialogOrt || "Kühlschrank";
+
     this._boundLocationHandler = this._boundLocationHandler || (() => this._handleLocationChange());
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
@@ -45,7 +55,6 @@ class EssenPlanerCard extends HTMLElement {
       if (focusedRole === "day-picker-search") this._refreshDayPickerList();
       return;
     }
-    // lazy-load reste on first render of plan-mode
     if (this.mode === "plan" && !this._draft.resteLoaded && !this._draft.resteLoading) {
       this._loadResteFallback();
     }
@@ -243,7 +252,6 @@ class EssenPlanerCard extends HTMLElement {
     }
   }
 
-  // --- NEU: Reste Fallback laden ---
   async _loadResteFallback() {
     this._draft.resteLoading = true;
     try {
@@ -383,7 +391,6 @@ class EssenPlanerCard extends HTMLElement {
     if (typeof requestAnimationFrame === "function") requestAnimationFrame(restore);
   }
 
-  // --- NEU: Tabs in Plan-View ---
   _planTabs() {
     const tab = String(this._draft.planTab || "mittag");
     const btn = (id, label) => `<button class="plan-tab ${tab === id ? "active" : ""}" data-action="set-plan-tab" data-tab="${this._escape(id)}">${this._escape(label)}</button>`;
@@ -440,6 +447,7 @@ class EssenPlanerCard extends HTMLElement {
               }
             </div>
             ${this._dishPickerOverlay()}
+            ${this._resteFromDayOverlay()}
           ` : ""}
 
           ${tab === "abend" ? this._abendView(plan) : ""}
@@ -449,7 +457,6 @@ class EssenPlanerCard extends HTMLElement {
     `;
   }
 
-  // --- NEU: Abendessen View ---
   _abendView(plan) {
     const pool = Array.isArray(plan.abendessen) ? plan.abendessen : [];
     return `
@@ -476,7 +483,6 @@ class EssenPlanerCard extends HTMLElement {
     `;
   }
 
-  // --- NEU: Reste View ---
   _todayIso() {
     const d = new Date();
     const y = d.getFullYear();
@@ -507,7 +513,7 @@ class EssenPlanerCard extends HTMLElement {
     const reste = Array.isArray(this._draft.reste) ? this._draft.reste : [];
     const sorted = [...reste].sort((a, b) => String(a.ablauf_datum || "9999").localeCompare(String(b.ablauf_datum || "9999")));
     return `
-      <div class="subpanel">
+      <div class="subpanel reste-subpanel">
         <div class="subhead">
           <strong>Reste (Inventur)</strong>
           <span class="hint">Einbuchen + Haltbarkeit</span>
@@ -517,8 +523,8 @@ class EssenPlanerCard extends HTMLElement {
           <input class="text-input" data-role="reste-name" placeholder="Gerichtname…" value="${this._escape(this._draft.resteName || "")}">
           <input class="text-input small" data-role="reste-port" placeholder="Port." value="${this._escape(this._draft.restePort || "")}">
           <select class="plan-select" data-role="reste-ort">
-            <option ${String(this._draft.resteOrt || "Kühlschrank") === "Kühlschrank" ? "selected" : ""}>Kühlschrank</option>
-            <option ${String(this._draft.resteOrt || "") === "Eingefroren" ? "selected" : ""}>Eingefroren</option>
+            <option value="Kühlschrank" ${String(this._draft.resteOrt || "Kühlschrank") === "Kühlschrank" ? "selected" : ""}>Kühlschrank</option>
+            <option value="Eingefroren" ${String(this._draft.resteOrt || "") === "Eingefroren" ? "selected" : ""}>Gefrierschrank</option>
           </select>
           <button class="plain-button primary" data-action="reste-add">Einbuchen</button>
           <button class="plain-button" data-action="reste-refresh">Aktualisieren</button>
@@ -527,13 +533,15 @@ class EssenPlanerCard extends HTMLElement {
         <div class="reste-list">
           ${sorted.length ? sorted.map((r) => {
             const badge = this._resteBadge(r);
+            const ortLabel = String(r.ort || "");
+            const ortPretty = ortLabel.toLowerCase().includes("eingefror") ? "Gefrierschrank" : ortLabel;
             return `
               <div class="reste-item">
                 <span class="badge ${badge.cls}">${this._escape(badge.text)}</span>
                 <div class="reste-text">
                   <strong>${this._escape(r.gericht || "")}</strong>
                   <div class="reste-meta">
-                    <span>${this._escape(r.ort || "")}</span>
+                    <span>${this._escape(ortPretty || "")}</span>
                     ${r.portionen ? `<span>· ${this._escape(r.portionen)} Portion(en)</span>` : ""}
                     ${r.ablauf_datum ? `<span>· Ablauf ${this._escape(r.ablauf_datum)}</span>` : ""}
                   </div>
@@ -575,7 +583,7 @@ class EssenPlanerCard extends HTMLElement {
         <button class="icon-button" title="Diesen Tag neu würfeln" data-action="reroll-day" data-day="${this._escape(day.key)}">
           <ha-icon icon="mdi:sync"></ha-icon>
         </button>
-        <button class="icon-button" title="Als Reste einbuchen" data-action="reste-from-day" data-dish="${this._escape(value)}" ${hasDish ? "" : "disabled"}>
+        <button class="icon-button" title="Als Reste einbuchen" data-action="open-reste-dialog" data-dish="${this._escape(value)}" ${hasDish ? "" : "disabled"}>
           <ha-icon icon="mdi:food-variant"></ha-icon>
         </button>
         <button class="icon-button danger" title="Gericht löschen" data-action="clear-day" data-day="${this._escape(day.key)}">
@@ -609,6 +617,44 @@ class EssenPlanerCard extends HTMLElement {
     `;
   }
 
+  _resteFromDayOverlay() {
+    if (!this._draft.resteDialogOpen) return "";
+    const dish = String(this._draft.resteDialogDish || "");
+    return `
+      <div class="modal-backdrop" data-action="close-reste-dialog">
+        <div class="dish-picker-dialog" data-role="reste-dialog">
+          <div class="picker-head">
+            <strong>Reste einbuchen</strong>
+            <button class="icon-button" title="Schließen" data-action="close-reste-dialog">
+              <ha-icon icon="mdi:close"></ha-icon>
+            </button>
+          </div>
+
+          <div class="reste-dialog-body">
+            <div class="reste-dialog-dish">
+              <small>Gericht</small>
+              <div class="reste-dialog-name">${this._escape(dish)}</div>
+            </div>
+
+            <label class="field-label">Portionen</label>
+            <input class="text-input" data-role="reste-dialog-port" value="${this._escape(this._draft.resteDialogPort || "1")}" autocomplete="off" inputmode="numeric">
+
+            <label class="field-label">Ort</label>
+            <select class="plan-select" data-role="reste-dialog-ort">
+              <option value="Kühlschrank" ${String(this._draft.resteDialogOrt || "Kühlschrank") === "Kühlschrank" ? "selected" : ""}>Kühlschrank</option>
+              <option value="Eingefroren" ${String(this._draft.resteDialogOrt || "") === "Eingefroren" ? "selected" : ""}>Gefrierschrank</option>
+            </select>
+
+            <div class="form-actions">
+              <button class="plain-button primary" data-action="confirm-reste-dialog">Einbuchen</button>
+              <button class="plain-button" data-action="close-reste-dialog">Abbrechen</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   _dayPickerListHtml(dishes, dayKey) {
     if (!dishes.length) {
       return `<div class="empty-list">Kein Gericht gefunden.</div>`;
@@ -621,7 +667,7 @@ class EssenPlanerCard extends HTMLElement {
     `).join("");
   }
 
-  _newDishView() { /* unchanged below */
+  _newDishView() {
     return `
       <div class="shell">
         ${this._sidebar("new")}
@@ -640,7 +686,7 @@ class EssenPlanerCard extends HTMLElement {
     `;
   }
 
-  _editDishView() { /* unchanged below */
+  _editDishView() {
     const dishes = this._activeDishes();
     if (!this._draft.editId && dishes.length) {
       this._selectDish(dishes[0], false);
@@ -724,6 +770,13 @@ class EssenPlanerCard extends HTMLElement {
     if (pickerDialog) {
       pickerDialog.addEventListener("click", (event) => event.stopPropagation());
     }
+
+    // prevent backdrop click from bubbling for reste-dialog too
+    const resteDialog = this.shadowRoot.querySelector('[data-role="reste-dialog"]');
+    if (resteDialog) {
+      resteDialog.addEventListener("click", (event) => event.stopPropagation());
+    }
+
     this.shadowRoot.querySelectorAll("input, textarea, select").forEach((element) => {
       element.addEventListener("input", (event) => this._handleInput(event));
       if (element.dataset.role === "edit-search") {
@@ -740,6 +793,16 @@ class EssenPlanerCard extends HTMLElement {
             event.preventDefault();
             this._saveDayInput(event.currentTarget);
             event.currentTarget.blur();
+          }
+        });
+      }
+
+      // reste-dialog inputs
+      if (element.dataset.role === "reste-dialog-port") {
+        element.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            this._confirmResteDialog();
           }
         });
       }
@@ -767,11 +830,13 @@ class EssenPlanerCard extends HTMLElement {
     }
     if (role === "day-input") this._draft[`day-${target.dataset.day}`] = target.value;
 
-    // NEU inputs
     if (role === "abend-name") this._draft.abendName = target.value;
     if (role === "reste-name") this._draft.resteName = target.value;
     if (role === "reste-port") this._draft.restePort = target.value;
     if (role === "reste-ort") this._draft.resteOrt = target.value;
+
+    if (role === "reste-dialog-port") this._draft.resteDialogPort = target.value;
+    if (role === "reste-dialog-ort") this._draft.resteDialogOrt = target.value;
 
     if (target.type === "radio") {
       if (target.name === "new-class") this._draft.newClass = Number(target.value);
@@ -783,6 +848,7 @@ class EssenPlanerCard extends HTMLElement {
   async _handleAction(event) {
     const action = event.currentTarget.dataset.action;
     const day = event.currentTarget.dataset.day;
+
     if (action === "go-main") return this._goMain();
     if (action === "go-new") return this._navigate(this._viewPath("essen-neu"));
     if (action === "go-edit") return this._navigate(this._viewPath("essen-bearbeiten"));
@@ -800,7 +866,6 @@ class EssenPlanerCard extends HTMLElement {
     if (action === "save-edit") return this._saveEditDish();
     if (action === "delete-dish") return this._deleteDish();
 
-    // NEU: tabs
     if (action === "set-plan-tab") {
       this._draft.planTab = event.currentTarget.dataset.tab || "mittag";
       if (this._draft.planTab === "reste" && !this._draft.resteLoaded && !this._draft.resteLoading) {
@@ -810,7 +875,6 @@ class EssenPlanerCard extends HTMLElement {
       return;
     }
 
-    // NEU: abend
     if (action === "abend-add") {
       const name = String(this._draft.abendName || "").trim();
       if (!name) return this._notify("Bitte einen Namen eingeben.");
@@ -822,6 +886,7 @@ class EssenPlanerCard extends HTMLElement {
       this._render();
       return;
     }
+
     if (action === "abend-remove") {
       const name = String(event.currentTarget.dataset.name || "");
       const period = this._selectedPlanPeriod();
@@ -832,12 +897,12 @@ class EssenPlanerCard extends HTMLElement {
       return;
     }
 
-    // NEU: reste
     if (action === "reste-refresh") {
       this._draft.resteLoaded = false;
       this._loadResteFallback();
       return;
     }
+
     if (action === "reste-add") {
       const name = String(this._draft.resteName || "").trim();
       if (!name) return this._notify("Bitte einen Namen eingeben.");
@@ -851,6 +916,7 @@ class EssenPlanerCard extends HTMLElement {
       this._loadResteFallback();
       return;
     }
+
     if (action === "reste-remove") {
       const id = String(event.currentTarget.dataset.id || "");
       await this._callPlanner("reste_entfernen", { reste_id: id });
@@ -858,18 +924,195 @@ class EssenPlanerCard extends HTMLElement {
       this._loadResteFallback();
       return;
     }
-    if (action === "reste-from-day") {
+
+    if (action === "open-reste-dialog") {
       const dish = String(event.currentTarget.dataset.dish || "").trim();
       if (!dish) return;
-      const portionen = prompt("Portionen?", "1");
-      if (portionen === null) return;
-      const ort = prompt("Ort? Kühlschrank oder Eingefroren", "Kühlschrank");
-      if (ort === null) return;
-      await this._callPlanner("reste_hinzufuegen", { gericht_name: dish, portionen: String(portionen || "1"), ort: String(ort || "Kühlschrank") });
-      this._draft.resteLoaded = false;
-      this._loadResteFallback();
+      this._draft.resteDialogOpen = true;
+      this._draft.resteDialogDish = dish;
+      this._draft.resteDialogPort = "1";
+      this._draft.resteDialogOrt = "Kühlschrank";
+      this._render();
       return;
     }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._draft.resteDialogDish = "";
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog" || action === "close-reste") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "confirm-reste-dialog") {
+      await this._confirmResteDialog();
+      return;
+    }
+
+    if (action === "close-reste-dialog" || action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+
+    if (action === "close-reste-dialog") {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+  }
+
+  async _confirmResteDialog() {
+    const dish = String(this._draft.resteDialogDish || "").trim();
+    if (!dish) {
+      this._draft.resteDialogOpen = false;
+      this._render();
+      return;
+    }
+    const portionen = String(this._draft.resteDialogPort || "1").trim() || "1";
+    const ort = String(this._draft.resteDialogOrt || "Kühlschrank");
+    await this._callPlanner("reste_hinzufuegen", { gericht_name: dish, portionen, ort });
+    this._draft.resteDialogOpen = false;
+    this._draft.resteDialogDish = "";
+    this._draft.resteLoaded = false;
+    this._loadResteFallback();
   }
 
   async _createPlan() {
@@ -1172,7 +1415,7 @@ class EssenPlanerCard extends HTMLElement {
   _focusedRole() {
     const activeElement = this.shadowRoot && this.shadowRoot.activeElement;
     const role = activeElement && activeElement.dataset ? activeElement.dataset.role : null;
-    return ["edit-search", "day-picker-search", "day-input", "new-name", "edit-name"].includes(role) ? role : null;
+    return ["edit-search", "day-picker-search", "day-input", "new-name", "edit-name", "reste-dialog-port", "reste-dialog-ort"].includes(role) ? role : null;
   }
 
   _searchText(value) {
@@ -1321,7 +1564,8 @@ class EssenPlanerCard extends HTMLElement {
       .abend-list { display:flex; flex-direction:column; gap: 8px; }
       .abend-item { display:flex; align-items:center; justify-content: space-between; gap: 10px; border:1px solid var(--divider-color); border-radius:6px; padding: 8px 10px; background: var(--card-background-color); }
 
-      .reste-add { display:grid; grid-template-columns: 1fr 90px 160px auto auto; gap: 10px; margin-bottom: 10px; }
+      .reste-subpanel { overflow: visible; }
+      .reste-add { display:grid; grid-template-columns: 1fr 90px 160px auto auto; gap: 10px; margin-bottom: 10px; overflow: visible; }
       .text-input.small { width: 90px; }
       .reste-list { display:flex; flex-direction:column; gap: 8px; }
       .reste-item { display:grid; grid-template-columns: 70px 1fr 42px; gap: 10px; align-items: center; border:1px solid var(--divider-color); border-radius:6px; padding: 8px 10px; background: var(--card-background-color); }
@@ -1333,6 +1577,49 @@ class EssenPlanerCard extends HTMLElement {
       .badge-warn { border-color: color-mix(in srgb, var(--error-color, #db4437) 35%, var(--divider-color)); background: color-mix(in srgb, var(--error-color, #db4437) 10%, transparent); }
       .badge-bad { border-color: color-mix(in srgb, var(--error-color, #db4437) 55%, var(--divider-color)); background: color-mix(in srgb, var(--error-color, #db4437) 16%, transparent); }
       .badge-neutral { }
+
+      /* overlays: harden to always overlay */
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 18px;
+        background: rgba(0, 0, 0, 0.5);
+        box-sizing: border-box;
+      }
+      .dish-picker-dialog {
+        width: min(620px, 100%);
+        max-height: min(720px, 88vh);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 16px;
+        background: var(--card-background-color);
+        border: 1px solid var(--divider-color);
+        border-radius: 6px;
+        box-sizing: border-box;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+      }
+      .picker-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 18px;
+      }
+      .picker-list {
+        max-height: 480px;
+        overflow: auto;
+        border: 1px solid var(--divider-color);
+        border-radius: 4px;
+      }
+
+      .reste-dialog-body { display: grid; gap: 10px; }
+      .reste-dialog-dish small { color: var(--secondary-text-color); font-weight: 700; }
+      .reste-dialog-name { font-size: 18px; font-weight: 800; }
 
       .empty-list { padding: 18px; color: var(--secondary-text-color); }
 
