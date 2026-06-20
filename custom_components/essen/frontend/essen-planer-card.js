@@ -1,8 +1,19 @@
+/* eslint-disable */
+// Essen Planer Card – erweitert: Tabs in Plan-Ansicht für Mittag/Abend/Reste
+// Patch auf Basis von TheShunxxx/Essensplaner-HA (Frontend-Datei).
+// - Behält modes: plan/new/edit
+// - Fügt im plan-mode Tabs hinzu
+// - Liest Reste aus /local/essen-reste.json (Fallback) + Services
+
 class EssenPlanerCard extends HTMLElement {
   setConfig(config) {
     this.config = config || {};
     this.mode = this.config.mode || "plan";
     this._draft = this._draft || {};
+    this._draft.planTab = this._draft.planTab || "mittag"; // neu
+    this._draft.resteLoaded = this._draft.resteLoaded || false;
+    this._draft.resteLoading = this._draft.resteLoading || false;
+    this._draft.reste = this._draft.reste || [];
     this._boundLocationHandler = this._boundLocationHandler || (() => this._handleLocationChange());
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
@@ -12,6 +23,7 @@ class EssenPlanerCard extends HTMLElement {
   connectedCallback() {
     this.mode = this.mode || "plan";
     this._draft = this._draft || {};
+    this._draft.planTab = this._draft.planTab || "mittag";
     this._boundLocationHandler = this._boundLocationHandler || (() => this._handleLocationChange());
     window.addEventListener("location-changed", this._boundLocationHandler);
     window.addEventListener("popstate", this._boundLocationHandler);
@@ -32,6 +44,10 @@ class EssenPlanerCard extends HTMLElement {
       if (focusedRole === "edit-search") this._refreshEditList();
       if (focusedRole === "day-picker-search") this._refreshDayPickerList();
       return;
+    }
+    // lazy-load reste on first render of plan-mode
+    if (this.mode === "plan" && !this._draft.resteLoaded && !this._draft.resteLoading) {
+      this._loadResteFallback();
     }
     this._render();
   }
@@ -85,6 +101,7 @@ class EssenPlanerCard extends HTMLElement {
     if (this._draft.newClass == null) this._draft.newClass = 1;
     if (this._draft.editClass == null) this._draft.editClass = 1;
     if (this._draft.editSearch == null) this._draft.editSearch = "";
+    if (this._draft.planTab == null) this._draft.planTab = "mittag";
   }
 
   _sensorPlanAttrs() {
@@ -123,6 +140,7 @@ class EssenPlanerCard extends HTMLElement {
       week: plan.week,
       key: plan.key,
       days: plan.days || [],
+      abendessen: Array.isArray(plan.abendessen) ? plan.abendessen : [],
       has_plan: true,
       state: `KW ${plan.week} / ${plan.year}: ${filled}/7`,
     };
@@ -225,6 +243,24 @@ class EssenPlanerCard extends HTMLElement {
     }
   }
 
+  // --- NEU: Reste Fallback laden ---
+  async _loadResteFallback() {
+    this._draft.resteLoading = true;
+    try {
+      const response = await fetch(`/local/essen-reste.json?v=${Date.now()}`, {
+        cache: "no-store",
+      });
+      const data = await response.json();
+      this._draft.reste = Array.isArray(data) ? data : (data && Array.isArray(data.reste) ? data.reste : []);
+    } catch (e) {
+      this._draft.reste = [];
+    } finally {
+      this._draft.resteLoaded = true;
+      this._draft.resteLoading = false;
+      this._render();
+    }
+  }
+
   _currentIsoWeek() {
     return this._isoWeekFromDate(new Date());
   }
@@ -277,6 +313,7 @@ class EssenPlanerCard extends HTMLElement {
           custom: false,
         };
       }),
+      abendessen: [],
     };
   }
 
@@ -346,6 +383,13 @@ class EssenPlanerCard extends HTMLElement {
     if (typeof requestAnimationFrame === "function") requestAnimationFrame(restore);
   }
 
+  // --- NEU: Tabs in Plan-View ---
+  _planTabs() {
+    const tab = String(this._draft.planTab || "mittag");
+    const btn = (id, label) => `<button class="plan-tab ${tab === id ? "active" : ""}" data-action="set-plan-tab" data-tab="${this._escape(id)}">${this._escape(label)}</button>`;
+    return `<div class="plan-tabs">${btn("mittag", "Mittag")}${btn("abend", "Abend")}${btn("reste", "Reste")}</div>`;
+  }
+
   _planView() {
     const plan = this._planAttrs();
     const days = plan.days || [];
@@ -353,6 +397,8 @@ class EssenPlanerCard extends HTMLElement {
     const hasPlan = Boolean(plan.has_plan);
     const selectedWeekLabel = this._selectedWeekLabel(plan);
     const weekOffset = this._selectedWeekOffset(plan);
+    const tab = String(this._draft.planTab || "mittag");
+
     return `
       <div class="shell">
         ${this._sidebar("plan")}
@@ -371,7 +417,9 @@ class EssenPlanerCard extends HTMLElement {
               </button>
               <button class="plain-button primary" data-action="create-plan">${hasPlan ? "Plan neu generieren" : "Plan generieren"}</button>
             </div>
+            ${this._planTabs()}
           </div>
+
           ${
             hasPlan
               ? ""
@@ -379,18 +427,124 @@ class EssenPlanerCard extends HTMLElement {
                   Für ${this._escape(plan.label)} gibt es noch keinen Plan. Du kannst die Tage manuell füllen oder einen Plan generieren.
                 </div>`
           }
-          <div class="days">
-            ${
-              days.length
-                ? days.map((day) => this._dayRow(day)).join("")
-                : `<div class="empty-plan">
-                    <strong>Noch kein Plan angelegt.</strong>
-                    <span>Wähle oben eine Woche aus und klicke auf „Plan generieren“.</span>
-                  </div>`
-            }
-          </div>
-          ${this._dishPickerOverlay()}
+
+          ${tab === "mittag" ? `
+            <div class="days">
+              ${
+                days.length
+                  ? days.map((day) => this._dayRow(day)).join("")
+                  : `<div class="empty-plan">
+                      <strong>Noch kein Plan angelegt.</strong>
+                      <span>Wähle oben eine Woche aus und klicke auf „Plan generieren“.</span>
+                    </div>`
+              }
+            </div>
+            ${this._dishPickerOverlay()}
+          ` : ""}
+
+          ${tab === "abend" ? this._abendView(plan) : ""}
+          ${tab === "reste" ? this._resteView() : ""}
         </section>
+      </div>
+    `;
+  }
+
+  // --- NEU: Abendessen View ---
+  _abendView(plan) {
+    const pool = Array.isArray(plan.abendessen) ? plan.abendessen : [];
+    return `
+      <div class="subpanel">
+        <div class="subhead">
+          <strong>Abendessen (Pool)</strong>
+          <span class="hint">Sammelliste für die Woche</span>
+        </div>
+        <div class="abend-add">
+          <input class="text-input" data-role="abend-name" placeholder="Gerichtname…" value="${this._escape(this._draft.abendName || "")}">
+          <button class="plain-button primary" data-action="abend-add">Hinzufügen</button>
+        </div>
+        <div class="abend-list">
+          ${pool.length ? pool.map((name) => `
+            <div class="abend-item">
+              <span>${this._escape(name)}</span>
+              <button class="icon-button danger" title="Entfernen" data-action="abend-remove" data-name="${this._escape(name)}">
+                <ha-icon icon="mdi:close-thick"></ha-icon>
+              </button>
+            </div>
+          `).join("") : `<div class="empty-list">Noch nichts eingeplant.</div>`}
+        </div>
+      </div>
+    `;
+  }
+
+  // --- NEU: Reste View ---
+  _todayIso() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  _daysDiffIso(a, b) {
+    const da = new Date(a + "T00:00:00");
+    const db = new Date(b + "T00:00:00");
+    return Math.round((db - da) / 86400000);
+  }
+
+  _resteBadge(entry) {
+    const today = this._todayIso();
+    const ablauf = String(entry.ablauf_datum || "");
+    if (!ablauf) return { cls: "badge-neutral", text: "?" };
+    const diff = this._daysDiffIso(today, ablauf);
+    if (diff < 0) return { cls: "badge-bad", text: `abgelaufen` };
+    if (diff === 0) return { cls: "badge-warn", text: `heute` };
+    if (diff <= 2) return { cls: "badge-warn", text: `${diff}T` };
+    if (diff <= 4) return { cls: "badge-ok", text: `${diff}T` };
+    return { cls: "badge-good", text: `${diff}T` };
+  }
+
+  _resteView() {
+    const reste = Array.isArray(this._draft.reste) ? this._draft.reste : [];
+    const sorted = [...reste].sort((a, b) => String(a.ablauf_datum || "9999").localeCompare(String(b.ablauf_datum || "9999")));
+    return `
+      <div class="subpanel">
+        <div class="subhead">
+          <strong>Reste (Inventur)</strong>
+          <span class="hint">Einbuchen + Haltbarkeit</span>
+        </div>
+
+        <div class="reste-add">
+          <input class="text-input" data-role="reste-name" placeholder="Gerichtname…" value="${this._escape(this._draft.resteName || "")}">
+          <input class="text-input small" data-role="reste-port" placeholder="Port." value="${this._escape(this._draft.restePort || "")}">
+          <select class="plan-select" data-role="reste-ort">
+            <option ${String(this._draft.resteOrt || "Kühlschrank") === "Kühlschrank" ? "selected" : ""}>Kühlschrank</option>
+            <option ${String(this._draft.resteOrt || "") === "Eingefroren" ? "selected" : ""}>Eingefroren</option>
+          </select>
+          <button class="plain-button primary" data-action="reste-add">Einbuchen</button>
+          <button class="plain-button" data-action="reste-refresh">Aktualisieren</button>
+        </div>
+
+        <div class="reste-list">
+          ${sorted.length ? sorted.map((r) => {
+            const badge = this._resteBadge(r);
+            return `
+              <div class="reste-item">
+                <span class="badge ${badge.cls}">${this._escape(badge.text)}</span>
+                <div class="reste-text">
+                  <strong>${this._escape(r.gericht || "")}</strong>
+                  <div class="reste-meta">
+                    <span>${this._escape(r.ort || "")}</span>
+                    ${r.portionen ? `<span>· ${this._escape(r.portionen)} Portion(en)</span>` : ""}
+                    ${r.ablauf_datum ? `<span>· Ablauf ${this._escape(r.ablauf_datum)}</span>` : ""}
+                  </div>
+                </div>
+                <button class="icon-button danger" title="Entfernen" data-action="reste-remove" data-id="${this._escape(r.id)}">
+                  <ha-icon icon="mdi:close-thick"></ha-icon>
+                </button>
+              </div>
+            `;
+          }).join("") : `<div class="empty-list">Keine Reste eingetragen.</div>`}
+        </div>
       </div>
     `;
   }
@@ -398,6 +552,7 @@ class EssenPlanerCard extends HTMLElement {
   _dayRow(day) {
     const draftValue = this._draft[`day-${day.key}`];
     const value = draftValue != null ? draftValue : day.dish_name || "";
+    const hasDish = String(value || "").trim().length > 0;
     return `
       <div class="day-row">
         <div class="day-name">${this._escape(day.name)}</div>
@@ -419,6 +574,9 @@ class EssenPlanerCard extends HTMLElement {
         </button>
         <button class="icon-button" title="Diesen Tag neu würfeln" data-action="reroll-day" data-day="${this._escape(day.key)}">
           <ha-icon icon="mdi:sync"></ha-icon>
+        </button>
+        <button class="icon-button" title="Als Reste einbuchen" data-action="reste-from-day" data-dish="${this._escape(value)}" ${hasDish ? "" : "disabled"}>
+          <ha-icon icon="mdi:food-variant"></ha-icon>
         </button>
         <button class="icon-button danger" title="Gericht löschen" data-action="clear-day" data-day="${this._escape(day.key)}">
           <ha-icon icon="mdi:close-thick"></ha-icon>
@@ -463,7 +621,7 @@ class EssenPlanerCard extends HTMLElement {
     `).join("");
   }
 
-  _newDishView() {
+  _newDishView() { /* unchanged below */
     return `
       <div class="shell">
         ${this._sidebar("new")}
@@ -482,7 +640,7 @@ class EssenPlanerCard extends HTMLElement {
     `;
   }
 
-  _editDishView() {
+  _editDishView() { /* unchanged below */
     const dishes = this._activeDishes();
     if (!this._draft.editId && dishes.length) {
       this._selectDish(dishes[0], false);
@@ -608,6 +766,13 @@ class EssenPlanerCard extends HTMLElement {
       this._refreshDayPickerList();
     }
     if (role === "day-input") this._draft[`day-${target.dataset.day}`] = target.value;
+
+    // NEU inputs
+    if (role === "abend-name") this._draft.abendName = target.value;
+    if (role === "reste-name") this._draft.resteName = target.value;
+    if (role === "reste-port") this._draft.restePort = target.value;
+    if (role === "reste-ort") this._draft.resteOrt = target.value;
+
     if (target.type === "radio") {
       if (target.name === "new-class") this._draft.newClass = Number(target.value);
       if (target.name === "edit-class") this._draft.editClass = Number(target.value);
@@ -634,6 +799,77 @@ class EssenPlanerCard extends HTMLElement {
     if (action === "select-dish") return this._selectDishById(event.currentTarget.dataset.id);
     if (action === "save-edit") return this._saveEditDish();
     if (action === "delete-dish") return this._deleteDish();
+
+    // NEU: tabs
+    if (action === "set-plan-tab") {
+      this._draft.planTab = event.currentTarget.dataset.tab || "mittag";
+      if (this._draft.planTab === "reste" && !this._draft.resteLoaded && !this._draft.resteLoading) {
+        this._loadResteFallback();
+      }
+      this._render();
+      return;
+    }
+
+    // NEU: abend
+    if (action === "abend-add") {
+      const name = String(this._draft.abendName || "").trim();
+      if (!name) return this._notify("Bitte einen Namen eingeben.");
+      const period = this._selectedPlanPeriod();
+      await this._callPlanner("abendessen_hinzufuegen", { gericht_name: name, year: period.year, week: period.week });
+      this._draft.abendName = "";
+      this._draft.fallbackPlansLoaded = false;
+      await this._loadPlansFallback();
+      this._render();
+      return;
+    }
+    if (action === "abend-remove") {
+      const name = String(event.currentTarget.dataset.name || "");
+      const period = this._selectedPlanPeriod();
+      await this._callPlanner("abendessen_entfernen", { gericht_name: name, year: period.year, week: period.week });
+      this._draft.fallbackPlansLoaded = false;
+      await this._loadPlansFallback();
+      this._render();
+      return;
+    }
+
+    // NEU: reste
+    if (action === "reste-refresh") {
+      this._draft.resteLoaded = false;
+      this._loadResteFallback();
+      return;
+    }
+    if (action === "reste-add") {
+      const name = String(this._draft.resteName || "").trim();
+      if (!name) return this._notify("Bitte einen Namen eingeben.");
+      const portionen = String(this._draft.restePort || "1").trim() || "1";
+      const ort = String(this._draft.resteOrt || "Kühlschrank");
+      await this._callPlanner("reste_hinzufuegen", { gericht_name: name, portionen, ort });
+      this._draft.resteName = "";
+      this._draft.restePort = "";
+      this._draft.resteOrt = "Kühlschrank";
+      this._draft.resteLoaded = false;
+      this._loadResteFallback();
+      return;
+    }
+    if (action === "reste-remove") {
+      const id = String(event.currentTarget.dataset.id || "");
+      await this._callPlanner("reste_entfernen", { reste_id: id });
+      this._draft.resteLoaded = false;
+      this._loadResteFallback();
+      return;
+    }
+    if (action === "reste-from-day") {
+      const dish = String(event.currentTarget.dataset.dish || "").trim();
+      if (!dish) return;
+      const portionen = prompt("Portionen?", "1");
+      if (portionen === null) return;
+      const ort = prompt("Ort? Kühlschrank oder Eingefroren", "Kühlschrank");
+      if (ort === null) return;
+      await this._callPlanner("reste_hinzufuegen", { gericht_name: dish, portionen: String(portionen || "1"), ort: String(ort || "Kühlschrank") });
+      this._draft.resteLoaded = false;
+      this._loadResteFallback();
+      return;
+    }
   }
 
   async _createPlan() {
@@ -965,7 +1201,6 @@ class EssenPlanerCard extends HTMLElement {
         const dish = dishes.find((entry) => this._searchText(entry.name) === wanted);
         if (dish) return dish;
       } catch (error) {
-        // Retry below; the file can briefly be between writes.
       }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
@@ -996,7 +1231,6 @@ class EssenPlanerCard extends HTMLElement {
         dishes: dishes || [],
       }));
     } catch (error) {
-      // Storage can be unavailable in restricted browser modes.
     }
   }
 
@@ -1016,8 +1250,8 @@ class EssenPlanerCard extends HTMLElement {
   }
 
   _currentPathMatches(view) {
-    const normalize = (path) => String(path || "").replace(/\/+$/, "") || "/";
-    return normalize(window.location.pathname) === normalize(this._viewPath(view));
+    const normalizePath = (path) => String(path || "").replace(/\/+$/, "") || "/";
+    return normalizePath(window.location.pathname) === normalizePath(this._viewPath(view));
   }
 
   _notify(message) {
@@ -1039,324 +1273,78 @@ class EssenPlanerCard extends HTMLElement {
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
+      .replace(/\"/g, "&quot;")
       .replace(/'/g, "&#039;");
   }
 
   _styles() {
     return `
-      :host {
-        display: block;
-      }
-      ha-card {
-        overflow: hidden;
-      }
-      .shell {
-        display: grid;
-        grid-template-columns: 230px minmax(0, 1fr);
-        gap: 24px;
-        padding: 26px;
-        box-sizing: border-box;
-        min-height: 520px;
-      }
-      .sidebar {
-        display: flex;
-        flex-direction: column;
-        gap: 24px;
-        padding-top: 18px;
-      }
-      .side-button,
-      .plain-button,
-      .icon-button,
-      .dish-list-item {
-        font: inherit;
-        color: var(--primary-text-color);
-        border: 1px solid var(--divider-color);
-        background: var(--card-background-color);
-        border-radius: 6px;
-        cursor: pointer;
-      }
-      .side-button {
-        min-height: 48px;
-        font-size: 18px;
-        font-weight: 700;
-      }
-      .side-button.active {
-        border-color: var(--primary-color);
-        box-shadow: inset 4px 0 0 var(--primary-color);
-      }
-      .panel {
-        position: relative;
-        border: 1px solid var(--divider-color);
-        border-radius: 2px;
-        padding: 34px 16px 18px;
-        min-height: 360px;
-      }
-      .tab-label {
-        position: absolute;
-        top: -11px;
-        left: 0;
-        padding: 1px 8px;
-        background: var(--card-background-color);
-        border: 1px solid var(--divider-color);
-        font-size: 12px;
-      }
-      .plan-head {
-        margin-bottom: 12px;
-      }
-      .kw-line {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 12px;
-        color: var(--primary-color);
-        font-size: 18px;
-        font-weight: 700;
-      }
-      .kw-line label {
-        color: var(--primary-color);
-      }
-      .pipe {
-        color: var(--primary-color);
-      }
-      .selected-week {
-        min-width: 122px;
-        text-align: center;
-      }
-      .week-button {
-        width: 34px;
-      }
-      .plan-select,
-      .text-input {
-        color: var(--primary-text-color);
-        background: var(--secondary-background-color);
-        border: 1px solid var(--divider-color);
-        border-radius: 2px;
-        min-height: 34px;
-        padding: 4px 8px;
-        box-sizing: border-box;
-      }
-      .plan-select {
-        min-width: 160px;
-        font: inherit;
-        font-weight: 700;
-      }
-      .plain-button {
-        min-height: 36px;
-        padding: 0 18px;
-        font-weight: 700;
-      }
-      .plain-button.primary {
-        border-color: var(--primary-color);
-      }
-      .danger-button {
-        color: var(--error-color, #db4437);
-      }
-      .days {
-        display: flex;
-        flex-direction: column;
-        gap: 11px;
-        margin-top: 8px;
-      }
-      .plan-notice {
-        margin: 0 0 14px;
-        padding: 10px 12px;
-        border: 1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));
-        border-radius: 4px;
-        color: var(--secondary-text-color);
-        background: color-mix(in srgb, var(--primary-color) 8%, transparent);
-        font-weight: 600;
-      }
-      .day-row {
-        display: grid;
-        grid-template-columns: 120px 64px minmax(180px, 1fr) 42px 42px 42px;
-        gap: 10px;
-        align-items: center;
-      }
-      .day-name,
-      .day-date {
-        font-size: 18px;
-        font-weight: 700;
-      }
-      .dish-input,
-      .name-box {
-        width: 100%;
-        color: var(--primary-text-color);
-        background: var(--secondary-background-color);
-        border: 1px solid var(--divider-color);
-        border-radius: 2px;
-        box-sizing: border-box;
-        font: inherit;
-      }
-      .dish-input {
-        min-height: 38px;
-        padding: 6px 10px;
-        font-style: italic;
-        font-weight: 700;
-      }
-      .icon-button {
-        width: 38px;
-        height: 32px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-      }
-      .icon-button ha-icon {
-        color: var(--secondary-text-color);
-      }
-      .icon-button:disabled {
-        cursor: default;
-        opacity: 0.35;
-      }
-      .icon-button.danger ha-icon,
-      .danger {
-        color: var(--error-color, #db4437);
-      }
-      .empty-plan {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        padding: 80px 20px;
-        text-align: center;
-        color: var(--secondary-text-color);
-      }
-      .form-panel {
-        max-width: 720px;
-      }
-      .field-label {
-        display: block;
-        margin: 0 0 8px;
-        font-weight: 700;
-      }
-      .name-box {
-        min-height: 84px;
-        padding: 10px;
-        font-size: 18px;
-        font-weight: 700;
-        resize: vertical;
-      }
-      .radio-group {
-        display: grid;
-        gap: 12px;
-        margin: 28px 0 10px;
-      }
-      .radio-line {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        font-weight: 700;
-      }
-      .radio-line input {
-        accent-color: var(--primary-color);
-      }
-      .class-help {
-        min-height: 24px;
-        color: var(--secondary-text-color);
-        margin: 12px 0 24px;
-      }
-      .form-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 16px;
-        justify-content: flex-end;
-      }
-      .edit-grid {
-        display: grid;
-        grid-template-columns: minmax(220px, 320px) minmax(320px, 1fr);
-        gap: 24px;
-      }
-      .dish-list {
-        margin-top: 10px;
-        max-height: 360px;
-        overflow: auto;
-        border: 1px solid var(--divider-color);
-        border-radius: 4px;
-      }
-      .dish-list-item {
-        width: 100%;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 3px;
-        padding: 9px 10px;
-        border-width: 0 0 1px;
-        border-radius: 0;
-        text-align: left;
-      }
-      .dish-list-item.selected {
-        background: color-mix(in srgb, var(--primary-color) 18%, transparent);
-      }
-      .dish-list-item small {
-        color: var(--secondary-text-color);
-      }
-      .modal-backdrop {
-        position: fixed;
-        inset: 0;
-        z-index: 10;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 18px;
-        background: rgba(0, 0, 0, 0.5);
-        box-sizing: border-box;
-      }
-      .dish-picker-dialog {
-        width: min(620px, 100%);
-        max-height: min(720px, 88vh);
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        padding: 16px;
-        background: var(--card-background-color);
-        border: 1px solid var(--divider-color);
-        border-radius: 6px;
-        box-sizing: border-box;
-        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
-      }
-      .picker-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        font-size: 18px;
-      }
-      .picker-list {
-        max-height: 480px;
-        overflow: auto;
-        border: 1px solid var(--divider-color);
-        border-radius: 4px;
-      }
-      .empty-list {
-        padding: 18px;
-        color: var(--secondary-text-color);
-      }
+      :host { display:block; }
+      ha-card { overflow:hidden; }
+      .shell { display:grid; grid-template-columns: 230px minmax(0,1fr); gap:24px; padding:26px; box-sizing:border-box; min-height:520px; }
+      .sidebar { display:flex; flex-direction:column; gap:24px; padding-top:18px; }
+      .side-button, .plain-button, .icon-button, .dish-list-item { font:inherit; color: var(--primary-text-color); border:1px solid var(--divider-color); background: var(--card-background-color); border-radius:6px; cursor:pointer; }
+      .side-button { min-height:48px; font-size:18px; font-weight:700; }
+      .side-button.active { border-color: var(--primary-color); box-shadow: inset 4px 0 0 var(--primary-color); }
+      .panel { position:relative; border:1px solid var(--divider-color); border-radius:2px; padding:34px 16px 18px; min-height:360px; }
+      .tab-label { position:absolute; top:-11px; left:0; padding:1px 8px; background: var(--card-background-color); border:1px solid var(--divider-color); font-size:12px; }
+      .plan-head { margin-bottom: 12px; }
+      .kw-line { display:flex; flex-wrap:wrap; align-items:center; gap:12px; color: var(--primary-color); font-size:18px; font-weight:700; }
+      .pipe { color: var(--primary-color); }
+      .selected-week { min-width: 122px; text-align:center; }
+      .week-button { width:34px; }
+      .plan-select, .text-input { color: var(--primary-text-color); background: var(--secondary-background-color); border:1px solid var(--divider-color); border-radius:2px; min-height:34px; padding:4px 8px; box-sizing:border-box; }
+      .plan-select { min-width:160px; font:inherit; font-weight:700; }
+      .plain-button { min-height:36px; padding:0 18px; font-weight:700; }
+      .plain-button.primary { border-color: var(--primary-color); }
+      .danger-button { color: var(--error-color, #db4437); }
+
+      .plan-tabs { display:flex; gap:10px; margin-top: 10px; }
+      .plan-tab { font:inherit; border:1px solid var(--divider-color); background: var(--card-background-color); border-radius: 999px; padding: 6px 12px; cursor:pointer; font-weight: 800; }
+      .plan-tab.active { border-color: var(--primary-color); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--primary-color) 24%, transparent); }
+
+      .days { display:flex; flex-direction:column; gap:11px; margin-top:8px; }
+      .day-row { display:grid; grid-template-columns: 120px 64px minmax(180px, 1fr) 42px 42px 42px 42px; gap:10px; align-items:center; }
+      .day-name, .day-date { font-size:18px; font-weight:700; }
+      .dish-input, .name-box { width:100%; color: var(--primary-text-color); background: var(--secondary-background-color); border:1px solid var(--divider-color); border-radius:2px; box-sizing:border-box; font:inherit; }
+      .dish-input { min-height:38px; padding:6px 10px; font-style:italic; font-weight:700; }
+      .icon-button { width:38px; height:32px; display:inline-flex; align-items:center; justify-content:center; }
+      .icon-button ha-icon { color: var(--secondary-text-color); }
+      .icon-button:disabled { cursor: default; opacity: .35; }
+      .icon-button.danger ha-icon, .danger { color: var(--error-color, #db4437); }
+
+      .subpanel { margin-top: 12px; border-top: 1px solid var(--divider-color); padding-top: 12px; }
+      .subhead { display:flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+      .hint { color: var(--secondary-text-color); font-size: 12px; font-weight: 600; }
+
+      .abend-add { display:grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 10px; }
+      .abend-list { display:flex; flex-direction:column; gap: 8px; }
+      .abend-item { display:flex; align-items:center; justify-content: space-between; gap: 10px; border:1px solid var(--divider-color); border-radius:6px; padding: 8px 10px; background: var(--card-background-color); }
+
+      .reste-add { display:grid; grid-template-columns: 1fr 90px 160px auto auto; gap: 10px; margin-bottom: 10px; }
+      .text-input.small { width: 90px; }
+      .reste-list { display:flex; flex-direction:column; gap: 8px; }
+      .reste-item { display:grid; grid-template-columns: 70px 1fr 42px; gap: 10px; align-items: center; border:1px solid var(--divider-color); border-radius:6px; padding: 8px 10px; background: var(--card-background-color); }
+      .reste-meta { color: var(--secondary-text-color); font-size: 12px; font-weight: 600; display:flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; }
+
+      .badge { display:inline-flex; align-items:center; justify-content:center; font-weight: 900; border-radius: 999px; padding: 4px 8px; border: 1px solid var(--divider-color); font-size: 12px; }
+      .badge-good { border-color: color-mix(in srgb, var(--primary-color) 40%, var(--divider-color)); background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+      .badge-ok { border-color: color-mix(in srgb, var(--primary-color) 25%, var(--divider-color)); background: color-mix(in srgb, var(--primary-color) 6%, transparent); }
+      .badge-warn { border-color: color-mix(in srgb, var(--error-color, #db4437) 35%, var(--divider-color)); background: color-mix(in srgb, var(--error-color, #db4437) 10%, transparent); }
+      .badge-bad { border-color: color-mix(in srgb, var(--error-color, #db4437) 55%, var(--divider-color)); background: color-mix(in srgb, var(--error-color, #db4437) 16%, transparent); }
+      .badge-neutral { }
+
+      .empty-list { padding: 18px; color: var(--secondary-text-color); }
+
       @media (max-width: 760px) {
-        .shell {
-          grid-template-columns: 1fr;
-          padding: 14px;
-        }
-        .sidebar {
-          display: grid;
-          grid-template-columns: 1fr;
-          padding-top: 0;
-          gap: 10px;
-        }
-        .day-row {
-          grid-template-columns: 1fr repeat(3, 42px);
-        }
-        .day-name {
-          grid-column: 1 / 2;
-        }
-        .day-date {
-          grid-column: 2 / -1;
-          justify-self: end;
-        }
-        .dish-input {
-          grid-column: 1 / -1;
-        }
-        .edit-grid {
-          grid-template-columns: 1fr;
-        }
+        .shell { grid-template-columns: 1fr; padding: 14px; }
+        .sidebar { display:grid; grid-template-columns: 1fr; padding-top:0; gap:10px; }
+        .day-row { grid-template-columns: 1fr repeat(4, 42px); }
+        .day-name { grid-column: 1 / 2; }
+        .day-date { grid-column: 2 / -1; justify-self:end; }
+        .dish-input { grid-column: 1 / -1; }
+        .reste-add { grid-template-columns: 1fr; }
+        .abend-add { grid-template-columns: 1fr; }
       }
     `;
   }
@@ -1370,5 +1358,5 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "essen-planer-card",
   name: "Essensplaner",
-  description: "Essensplaner mit Wochenplan, Gerichten und Regeln",
+  description: "Essensplaner mit Wochenplan, Abendessen-Pool und Reste-Inventur",
 });
