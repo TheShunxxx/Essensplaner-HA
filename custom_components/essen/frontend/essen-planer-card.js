@@ -460,14 +460,25 @@ class EssenPlanerCard extends HTMLElement {
     return `
       <div class="subpanel">
         <div class="subhead"><strong>Abendessen (Pool)</strong></div>
+
         <div class="abend-add">
-          <input class="text-input" data-role="abend-name" placeholder="Gerichtname…" value="${this._escape(this._draft.abendName || "")}">
+          <button class="plain-button" data-action="open-abend-picker">
+            Aus Liste wählen
+          </button>
+
+          <input class="text-input" data-role="abend-name" placeholder="(optional) Freitext…" value="${this._escape(this._draft.abendName || "")}">
           <button class="plain-button primary" data-action="abend-add">Hinzufügen</button>
         </div>
+
+        <div class="hint-line">Liste zeigt nur Gerichte vom Typ <strong>Abend</strong>.</div>
+
         <div class="abend-list">
           ${pool.length ? pool.map((name) => `
             <div class="abend-item">
               <span>${this._escape(name)}</span>
+              <button class="icon-button" title="Als Reste einbuchen" data-action="open-reste-dialog" data-dish="${this._escape(name)}">
+                <ha-icon icon="mdi:food-variant"></ha-icon>
+              </button>
               <button class="icon-button danger" title="Entfernen" data-action="abend-remove" data-name="${this._escape(name)}">
                 <ha-icon icon="mdi:close-thick"></ha-icon>
               </button>
@@ -555,16 +566,22 @@ class EssenPlanerCard extends HTMLElement {
   }
 
   _dishPickerOverlay() {
+    const mode = String(this._draft.pickerMode || "day"); // day | abend
     const dayKey = this._draft.pickerDay;
-    if (!dayKey) return "";
+    const isAbend = mode === "abend";
+
+    if (!isAbend && !dayKey) return "";
+
     const plan = this._planAttrs();
-    const day = (plan.days || []).find((entry) => entry.key === dayKey) || { name: "Tag" };
-    const dishes = this._filteredDishes(this._draft.pickerSearch || "");
+    const title = isAbend ? "Abendessen auswählen" : `${((plan.days || []).find((e) => e.key === dayKey) || { name: "Tag" }).name)} auswählen`;
+
+    const dishes = this._filteredDishesByTyp(this._draft.pickerSearch || "", isAbend ? "Abend" : "Mittag");
+
     return `
       <div class="modal-backdrop" data-action="close-picker">
         <div class="dish-picker-dialog">
           <div class="picker-head">
-            <strong>${this._escape(day.name)} auswählen</strong>
+            <strong>${this._escape(title)}</strong>
             <button class="icon-button" title="Schließen" data-action="close-picker">
               <ha-icon icon="mdi:close"></ha-icon>
             </button>
@@ -676,9 +693,35 @@ class EssenPlanerCard extends HTMLElement {
     const day = event.currentTarget.dataset.day;
 
     if (action === "set-plan-tab") { this._draft.planTab = event.currentTarget.dataset.tab || "mittag"; this._render(); return; }
-    if (action === "open-day-picker") return this._openDayPicker(day);
+
+    if (action === "open-day-picker") {
+      this._draft.pickerMode = "day";
+      return this._openDayPicker(day);
+    }
+
+    if (action === "open-abend-picker") {
+      this._draft.pickerMode = "abend";
+      this._draft.pickerDay = "__abend__";
+      this._draft.pickerSearch = "";
+      this._render();
+      return;
+    }
+
     if (action === "close-picker") return this._closeDayPicker();
-    if (action === "choose-day-dish") return this._chooseDishForDay(event.currentTarget.dataset.day, event.currentTarget.dataset.id);
+
+    if (action === "choose-day-dish") {
+      const id = event.currentTarget.dataset.id;
+      if (String(this._draft.pickerMode || "day") === "abend") {
+        const dish = this._activeDishes().find((d) => String(d.id) === String(id));
+        if (!dish) return;
+        await this._callPlanner("abendessen_hinzufuegen", { gericht_name: dish.name });
+        this._draft.pickerDay = null;
+        this._draft.pickerMode = "day";
+        this._render();
+        return;
+      }
+      return this._chooseDishForDay(event.currentTarget.dataset.day, id);
+    }
 
     if (action === "open-reste-dialog") {
       const dish = String(event.currentTarget.dataset.dish || "").trim();
@@ -739,8 +782,20 @@ class EssenPlanerCard extends HTMLElement {
   // should remain from your current repo file. This build focuses only on the grey-out behavior.
 
   _filteredDishes(search) {
+    // backwards compatible: default shows all
     const wanted = this._searchText(search || "");
     return this._activeDishes().filter((dish) => this._searchText(`${dish.id} ${dish.name}`).includes(wanted));
+  }
+
+  _filteredDishesByTyp(search, typWanted) {
+    const wanted = this._searchText(search || "");
+    const tWanted = this._searchText(typWanted || "");
+    return this._activeDishes().filter((dish) => {
+      const hit = this._searchText(`${dish.id} ${dish.name}`).includes(wanted);
+      if (!hit) return false;
+      const typ = this._searchText(dish.typ || "Mittag");
+      return typ === tWanted;
+    });
   }
 
   _searchText(value) {
