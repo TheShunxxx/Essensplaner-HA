@@ -481,6 +481,8 @@ class EssenPlanerCard extends HTMLElement {
 
           ${tab === "abend" ? this._abendView(plan) : ""}
           ${tab === "reste" ? this._resteView() : ""}
+
+          ${this._abendPickerOverlay()}
         </section>
       </div>
     `;
@@ -612,8 +614,20 @@ class EssenPlanerCard extends HTMLElement {
                   <strong>${this._escape(r.gericht || "")}</strong>
                   <div class="reste-meta">
                     <span>${this._escape(ortPretty || "")}</span>
-                    ${r.portionen ? `<span>· ${this._escape(r.portionen)} Portion(en)</span>` : ""}
                     ${r.ablauf_datum ? `<span>· Ablauf ${this._escape(r.ablauf_datum)}</span>` : ""}
+                  </div>
+
+                  <div class="reste-controls">
+                    <span class="reste-port-label">Portionen</span>
+                    <div class="stepper" role="group" aria-label="Portionen anpassen">
+                      <button class="icon-button" title="-0,5" data-action="reste-port-delta" data-id="${this._escape(r.id)}" data-delta="-0.5">
+                        <ha-icon icon="mdi:chevron-down"></ha-icon>
+                      </button>
+                      <div class="stepper-value">${this._escape(r.portionen || "0")}</div>
+                      <button class="icon-button" title="+0,5" data-action="reste-port-delta" data-id="${this._escape(r.id)}" data-delta="0.5">
+                        <ha-icon icon="mdi:chevron-up"></ha-icon>
+                      </button>
+                    </div>
                   </div>
                 </div>
                 <button class="icon-button danger" title="Entfernen" data-action="reste-remove" data-id="${this._escape(r.id)}">
@@ -623,8 +637,8 @@ class EssenPlanerCard extends HTMLElement {
             `;
           }).join("") : `<div class="empty-list">Keine Reste eingetragen.</div>`}
         </div>
-        ${this._abendPickerOverlay()}
       </div>
+      ${this._abendPickerOverlay()}
     `;
   }
 
@@ -939,6 +953,7 @@ class EssenPlanerCard extends HTMLElement {
     if (action === "reste-add") return this._resteAdd();
     if (action === "reste-refresh") return this._resteRefresh();
     if (action === "reste-remove") return this._resteRemove(event.currentTarget.dataset.id);
+    if (action === "reste-port-delta") return this._restePortDelta(event.currentTarget.dataset.id, event.currentTarget.dataset.delta);
 
     if (action === "open-abend-picker") return this._openAbendPicker();
     if (action === "abend-add") return this._abendAdd();
@@ -1000,6 +1015,17 @@ class EssenPlanerCard extends HTMLElement {
     const resteId = String(id || "").trim();
     if (!resteId) return;
     await this._callPlanner("reste_entfernen", { reste_id: resteId });
+    this._draft.resteLoaded = false;
+    await this._loadResteFallback();
+  }
+
+  async _restePortDelta(id, deltaRaw) {
+    const resteId = String(id || "").trim();
+    const delta = Number(deltaRaw);
+    if (!resteId || Number.isNaN(delta)) return;
+
+    await this._callPlanner("reste_portionen_aendern", { reste_id: resteId, delta });
+
     this._draft.resteLoaded = false;
     await this._loadResteFallback();
   }
@@ -1846,8 +1872,14 @@ class EssenPlanerCard extends HTMLElement {
       .badge-warn { background: color-mix(in srgb, #f9a825 18%, transparent); color: #f9a825; }
       .badge-bad { background: color-mix(in srgb, #c62828 18%, transparent); color: #c62828; }
       .badge-neutral { background: color-mix(in srgb, var(--secondary-text-color) 10%, transparent); color: var(--secondary-text-color); }
-      .reste-text { display:flex; flex-direction:column; gap:4px; }
+      .reste-text { display:flex; flex-direction:column; gap:6px; min-width: 0; }
       .reste-meta { display:flex; flex-wrap: wrap; gap: 8px; color: var(--secondary-text-color); font-weight: 700; }
+      .reste-controls { display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-top: 6px; }
+      .reste-port-label { color: var(--secondary-text-color); font-weight: 800; font-size: 12px; letter-spacing: .02em; text-transform: uppercase; }
+      .stepper { display:flex; align-items:center; gap: 10px; padding: 6px; border: 1px solid var(--divider-color); border-radius: 999px; background: color-mix(in srgb, var(--secondary-background-color) 85%, transparent); }
+      .stepper-value { min-width: 44px; text-align:center; font-weight: 900; }
+      .stepper .icon-button { width: 38px; height: 38px; border-radius: 999px; }
+      .stepper .icon-button ha-icon { color: var(--primary-text-color); }
 
       .subpanel { padding-top: 6px; }
       .subhead { margin-bottom: 10px; }
