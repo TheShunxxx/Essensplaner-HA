@@ -547,7 +547,7 @@ class EssenPlanerCard extends HTMLElement {
           ${pool.length ? pool.map((name) => `
             <div class="abend-item">
               <span>${this._escape(name)}</span>
-              <button class="icon-button" title="Als Reste einbuchen" data-action="open-reste-dialog" data-dish="${this._escape(name)}">
+              <button class="icon-button" title="Als Reste einbuchen" data-action="open-reste-dialog" data-dish="${this._escape(name)}" data-source="abend">
                 <ha-icon icon="mdi:food-variant"></ha-icon>
               </button>
               <button class="icon-button danger" title="Entfernen" data-action="abend-remove" data-name="${this._escape(name)}">
@@ -623,7 +623,7 @@ class EssenPlanerCard extends HTMLElement {
                       <button class="icon-button" title="-0,5" data-action="reste-port-delta" data-id="${this._escape(r.id)}" data-delta="-0.5">
                         <ha-icon icon="mdi:chevron-down"></ha-icon>
                       </button>
-                      <div class="stepper-value">${this._escape(r.portionen || "0")}</div>
+                      <input class="stepper-input" data-role="reste-port-set" data-id="${this._escape(r.id)}" value="${this._escape(r.portionen || "0")}" inputmode="decimal" autocomplete="off">
                       <button class="icon-button" title="+0,5" data-action="reste-port-delta" data-id="${this._escape(r.id)}" data-delta="0.5">
                         <ha-icon icon="mdi:chevron-up"></ha-icon>
                       </button>
@@ -853,6 +853,17 @@ class EssenPlanerCard extends HTMLElement {
 
     this.shadowRoot.querySelectorAll("input, textarea, select").forEach((element) => {
       element.addEventListener("input", (event) => this._handleInput(event));
+
+      if (element.dataset.role === "reste-port-set") {
+        element.addEventListener("blur", (event) => this._commitRestePortSet(event.currentTarget));
+        element.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            this._commitRestePortSet(event.currentTarget);
+            event.currentTarget.blur();
+          }
+        });
+      }
       if (element.dataset.role === "edit-search") {
         element.addEventListener("keydown", (event) => {
           if (event.key === "Enter") {
@@ -915,6 +926,11 @@ class EssenPlanerCard extends HTMLElement {
     if (role === "reste-dialog-port") this._draft.resteDialogPort = target.value;
     if (role === "reste-dialog-ort") this._draft.resteDialogOrt = target.value;
 
+    if (role === "reste-port-set") {
+      // live update only; commit happens on blur / Enter
+      target.value = target.value;
+    }
+
     if (target.type === "radio") {
       if (target.name === "new-class") this._draft.newClass = Number(target.value);
       if (target.name === "edit-class") this._draft.editClass = Number(target.value);
@@ -955,6 +971,8 @@ class EssenPlanerCard extends HTMLElement {
     if (action === "reste-remove") return this._resteRemove(event.currentTarget.dataset.id);
     if (action === "reste-port-delta") return this._restePortDelta(event.currentTarget.dataset.id, event.currentTarget.dataset.delta);
 
+    if (action === "reste-port-apply") return this._confirmResteDialog();
+
     if (action === "open-abend-picker") return this._openAbendPicker();
     if (action === "abend-add") return this._abendAdd();
     if (action === "abend-remove") return this._abendRemove(event.currentTarget.dataset.name);
@@ -964,12 +982,14 @@ class EssenPlanerCard extends HTMLElement {
     if (action === "open-reste-dialog") {
       const dish = String(event.currentTarget.dataset.dish || "").trim();
       const dayKey = event.currentTarget.dataset.day || null;
+      const source = String(event.currentTarget.dataset.source || "");
       if (!dish) return;
       this._draft.resteDialogOpen = true;
       this._draft.resteDialogDish = dish;
       this._draft.resteDialogDayKey = dayKey;
       this._draft.resteDialogPort = "1";
       this._draft.resteDialogOrt = "Kühlschrank";
+      this._draft.resteDialogSource = source;
       this._render();
       return;
     }
@@ -978,6 +998,7 @@ class EssenPlanerCard extends HTMLElement {
       this._draft.resteDialogOpen = false;
       this._draft.resteDialogDish = "";
       this._draft.resteDialogDayKey = null;
+      this._draft.resteDialogSource = "";
       this._render();
       return;
     }
@@ -1019,10 +1040,45 @@ class EssenPlanerCard extends HTMLElement {
     await this._loadResteFallback();
   }
 
+  _parsePortionen(value) {
+    const raw = String(value == null ? "" : value).trim().replace(",", ".");
+    const num = Number(raw);
+    return Number.isFinite(num) ? num : null;
+  }
+
   async _restePortDelta(id, deltaRaw) {
     const resteId = String(id || "").trim();
     const delta = Number(deltaRaw);
     if (!resteId || Number.isNaN(delta)) return;
+
+    await this._callPlanner("reste_portionen_aendern", { reste_id: resteId, delta });
+
+    this._draft.resteLoaded = false;
+    await this._loadResteFallback();
+  }
+
+  async _commitRestePortSet(input) {
+    const resteId = String(input && input.dataset ? input.dataset.id : "").trim();
+    if (!resteId) return;
+
+    const wanted = this._parsePortionen(input.value);
+    if (wanted == null) {
+      // revert
+      this._draft.resteLoaded = false;
+      await this._loadResteFallback();
+      return;
+    }
+
+    const currentEntry = (Array.isArray(this._draft.reste) ? this._draft.reste : []).find((r) => String(r.id) === resteId);
+    const current = currentEntry ? this._parsePortionen(currentEntry.portionen) : null;
+    if (current == null) {
+      this._draft.resteLoaded = false;
+      await this._loadResteFallback();
+      return;
+    }
+
+    const delta = Math.round((wanted - current) * 100) / 100;
+    if (Math.abs(delta) < 1e-9) return;
 
     await this._callPlanner("reste_portionen_aendern", { reste_id: resteId, delta });
 
@@ -1107,9 +1163,20 @@ class EssenPlanerCard extends HTMLElement {
       this._draft.uiResteBookedDays[dayKey] = true;
     }
 
+    // Wenn der Dialog aus dem Abendessen-Pool kam: optional nach Einbuchen direkt aus dem Pool entfernen.
+    // So bleibt der Pool sauber, ohne dass du extra "X" drücken musst.
+    const fromAbend = String(this._draft.resteDialogSource || "") === "abend";
+    const dishToRemove = dish;
+
     this._draft.resteDialogOpen = false;
     this._draft.resteDialogDish = "";
     this._draft.resteDialogDayKey = null;
+    this._draft.resteDialogSource = "";
+
+    if (fromAbend && dishToRemove) {
+      await this._callPlanner("abendessen_entfernen", this._planPayload({ gericht_name: dishToRemove }));
+    }
+
     this._draft.resteLoaded = false;
     this._loadResteFallback();
   }
@@ -1877,7 +1944,8 @@ class EssenPlanerCard extends HTMLElement {
       .reste-controls { display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-top: 6px; }
       .reste-port-label { color: var(--secondary-text-color); font-weight: 800; font-size: 12px; letter-spacing: .02em; text-transform: uppercase; }
       .stepper { display:flex; align-items:center; gap: 10px; padding: 6px; border: 1px solid var(--divider-color); border-radius: 999px; background: color-mix(in srgb, var(--secondary-background-color) 85%, transparent); }
-      .stepper-value { min-width: 44px; text-align:center; font-weight: 900; }
+      .stepper-input { width: 64px; min-width: 64px; text-align:center; font-weight: 900; font: inherit; color: var(--primary-text-color); background: transparent; border: 0; outline: none; padding: 0; }
+      .stepper-input:focus { outline: none; }
       .stepper .icon-button { width: 38px; height: 38px; border-radius: 999px; }
       .stepper .icon-button ha-icon { color: var(--primary-text-color); }
 
