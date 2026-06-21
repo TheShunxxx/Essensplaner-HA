@@ -382,9 +382,11 @@ class EssenPlanerCard extends HTMLElement {
         const dd = Number(s.slice(0, 2));
         const mm = Number(s.slice(3, 5));
 
+        // Wichtig: Jahr NICHT aus "weekMonday.getFullYear()" ziehen.
+        // Das kann an Jahreswechseln (KW 1/52/53) daneben liegen und graut dann alles aus.
+        // Wir nehmen stattdessen das Jahr aus der ausgewählten Plan-Periode.
         const period = this._selectedPlanPeriod();
-        const weekMonday = this._mondayForIsoWeek(period.year, period.week);
-        dayDate = new Date(weekMonday.getFullYear(), mm - 1, dd);
+        dayDate = new Date(Number(period.year), mm - 1, dd);
       }
 
       if (!dayDate || isNaN(dayDate.getTime())) return false;
@@ -621,6 +623,7 @@ class EssenPlanerCard extends HTMLElement {
             `;
           }).join("") : `<div class="empty-list">Keine Reste eingetragen.</div>`}
         </div>
+        ${this._abendPickerOverlay()}
       </div>
     `;
   }
@@ -643,6 +646,27 @@ class EssenPlanerCard extends HTMLElement {
           <input data-role="day-picker-search" class="text-input" value="${this._escape(this._draft.pickerSearch || "")}" placeholder="Gericht suchen" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="search">
           <div class="picker-list">
             ${this._dayPickerListHtml(dishes, dayKey)}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _abendPickerOverlay() {
+    if (!this._draft.abendPickerOpen) return "";
+    const dishes = this._abendDishes(this._draft.abendPickerSearch || "");
+    return `
+      <div class="modal-backdrop" data-action="close-abend-picker">
+        <div class="dish-picker-dialog">
+          <div class="picker-head">
+            <strong>Abendessen auswählen</strong>
+            <button class="icon-button" title="Schließen" data-action="close-abend-picker">
+              <ha-icon icon="mdi:close"></ha-icon>
+            </button>
+          </div>
+          <input data-role="abend-picker-search" class="text-input" value="${this._escape(this._draft.abendPickerSearch || "")}" placeholder="Gericht suchen" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="search">
+          <div class="picker-list abend-picker-list">
+            ${this._abendPickerListHtml(dishes)}
           </div>
         </div>
       </div>
@@ -865,6 +889,12 @@ class EssenPlanerCard extends HTMLElement {
     if (role === "day-input") this._draft[`day-${target.dataset.day}`] = target.value;
 
     if (role === "abend-name") this._draft.abendName = target.value;
+
+    if (role === "abend-picker-search") {
+      this._draft.abendPickerSearch = target.value;
+      this._refreshAbendPickerList();
+    }
+
     if (role === "reste-name") this._draft.resteName = target.value;
     if (role === "reste-port") this._draft.restePort = target.value;
     if (role === "reste-ort") this._draft.resteOrt = target.value;
@@ -906,6 +936,16 @@ class EssenPlanerCard extends HTMLElement {
     if (action === "save-edit") return this._saveEditDish();
     if (action === "delete-dish") return this._deleteDish();
 
+    if (action === "reste-add") return this._resteAdd();
+    if (action === "reste-refresh") return this._resteRefresh();
+    if (action === "reste-remove") return this._resteRemove(event.currentTarget.dataset.id);
+
+    if (action === "open-abend-picker") return this._openAbendPicker();
+    if (action === "abend-add") return this._abendAdd();
+    if (action === "abend-remove") return this._abendRemove(event.currentTarget.dataset.name);
+    if (action === "choose-abend-dish") return this._chooseAbendDish(event.currentTarget.dataset.id);
+    if (action === "close-abend-picker") return this._closeAbendPicker();
+
     if (action === "open-reste-dialog") {
       const dish = String(event.currentTarget.dataset.dish || "").trim();
       const dayKey = event.currentTarget.dataset.day || null;
@@ -933,6 +973,99 @@ class EssenPlanerCard extends HTMLElement {
     }
 
     // passthrough: additional actions can be implemented here
+  }
+
+  async _resteRefresh() {
+    this._draft.resteLoaded = false;
+    await this._loadResteFallback();
+  }
+
+  async _resteAdd() {
+    const dish = String(this._draft.resteName || "").trim();
+    if (!dish) return this._notify("Bitte einen Gerichtnamen eingeben.");
+    const portionen = String(this._draft.restePort || "1").trim() || "1";
+    const ort = String(this._draft.resteOrt || "Kühlschrank");
+
+    await this._callPlanner("reste_hinzufuegen", { gericht_name: dish, portionen, ort });
+
+    this._draft.resteName = "";
+    this._draft.restePort = "";
+    this._draft.resteOrt = ort;
+
+    this._draft.resteLoaded = false;
+    await this._loadResteFallback();
+  }
+
+  async _resteRemove(id) {
+    const resteId = String(id || "").trim();
+    if (!resteId) return;
+    await this._callPlanner("reste_entfernen", { reste_id: resteId });
+    this._draft.resteLoaded = false;
+    await this._loadResteFallback();
+  }
+
+  async _openAbendPicker() {
+    this._draft.abendPickerOpen = true;
+    this._draft.abendPickerSearch = "";
+    this._render();
+    await this._refreshDishesNow();
+    this._refreshAbendPickerList();
+  }
+
+  _closeAbendPicker() {
+    this._draft.abendPickerOpen = false;
+    this._draft.abendPickerSearch = "";
+    this._render();
+  }
+
+  _abendDishes(search) {
+    const wanted = this._searchText(search || "");
+    return this._activeDishes()
+      .filter((dish) => String(dish.typ || "Mittag") === "Abend")
+      .filter((dish) => this._searchText(`${dish.id} ${dish.name}`).includes(wanted));
+  }
+
+  _refreshAbendPickerList() {
+    const list = this.shadowRoot && this.shadowRoot.querySelector(".abend-picker-list");
+    if (!list || !this._draft.abendPickerOpen) return;
+    list.innerHTML = this._abendPickerListHtml(this._abendDishes(this._draft.abendPickerSearch || ""));
+    this._bindActions(list);
+  }
+
+  _abendPickerListHtml(dishes) {
+    if (!dishes.length) return `<div class="empty-list">Kein Abend-Gericht gefunden.</div>`;
+    return dishes
+      .map(
+        (dish) => `
+      <button class="dish-list-item" data-action="choose-abend-dish" data-id="${this._escape(dish.id)}">
+        <span>${this._escape(dish.name)}</span>
+        <small>ID ${this._escape(dish.id)} · K${this._escape(dish.klasse)}</small>
+      </button>
+    `
+      )
+      .join("");
+  }
+
+  async _chooseAbendDish(dishId) {
+    const dish = this._activeDishes().find((entry) => Number(entry.id) === Number(dishId));
+    if (!dish) return;
+    this._draft.abendName = dish.name;
+    this._closeAbendPicker();
+  }
+
+  async _abendAdd() {
+    const name = String(this._draft.abendName || "").trim();
+    if (!name) return this._notify("Bitte einen Namen eingeben.");
+    await this._callPlanner("abendessen_hinzufuegen", this._planPayload({ gericht_name: name }));
+    this._draft.abendName = "";
+    this._render();
+  }
+
+  async _abendRemove(name) {
+    const dishName = String(name || "").trim();
+    if (!dishName) return;
+    await this._callPlanner("abendessen_entfernen", this._planPayload({ gericht_name: dishName }));
+    this._render();
   }
 
   async _confirmResteDialog() {
@@ -1189,9 +1322,15 @@ class EssenPlanerCard extends HTMLElement {
       await Promise.all([this._refreshDishesNow(), this._loadPlansFallback()]);
       await this._hass
         .callService("homeassistant", "update_entity", {
-          entity_id: ["sensor.essen_wochenplan", "sensor.essen_gerichte"],
+          entity_id: ["sensor.essen_wochenplan", "sensor.essen_gerichte", "sensor.essen_reste"],
         })
         .catch(() => undefined);
+
+      // Wenn Services Reste verändern, sind die neuen Daten sofort im JSON unter /local/…
+      // Wir laden das hier nach, damit UI-Buttons (Löschen) sichtbar wirken.
+      this._draft.resteLoaded = false;
+      await this._loadResteFallback();
+
       return true;
     } catch (error) {
       this._notify(this._errorMessage(error));
