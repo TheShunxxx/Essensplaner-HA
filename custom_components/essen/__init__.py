@@ -343,52 +343,6 @@ class MealPlanner:
             self._save_reste(new_reste)
             return new_reste
 
-    def reste_portionen_aendern(self, reste_id: str, delta: float) -> list[dict[str, Any]]:
-        """Ändert die Portionen eines Reste-Eintrags um delta.
-
-        - delta kann z.B. -1, -0.5, +0.5, +1 sein.
-        - Wenn Portionen <= 0 werden, wird der Eintrag entfernt (aufgebraucht).
-        """
-        reste_id = str(reste_id or "").strip()
-        try:
-            delta_f = float(delta)
-        except (TypeError, ValueError) as err:
-            raise ValueError("delta muss eine Zahl sein (z.B. -0.5, 1).") from err
-
-        with self._lock:
-            reste = self._load_reste()
-            found = None
-            for r in reste:
-                if r.get("id") == reste_id:
-                    found = r
-                    break
-            if found is None:
-                raise ValueError(f"Reste-Eintrag '{reste_id}' nicht gefunden.")
-
-            raw = str(found.get("portionen", "0")).strip().replace(",", ".")
-            try:
-                current = float(raw) if raw else 0.0
-            except ValueError:
-                current = 0.0
-
-            new_value = current + delta_f
-
-            # Wenn aufgebraucht → entfernen
-            if new_value <= 0:
-                reste = [r for r in reste if r.get("id") != reste_id]
-                self._save_reste(reste)
-                return reste
-
-            # speichern (mit minimal sinnvollem String-Format)
-            if abs(new_value - round(new_value)) < 1e-9:
-                found["portionen"] = str(int(round(new_value)))
-            else:
-                found["portionen"] = str(round(new_value, 2)).rstrip("0").rstrip(".")
-
-            found["aktualisiert_am"] = datetime.now().isoformat(timespec="seconds")
-            self._save_reste(reste)
-            return reste
-
     def reste_alle_laden(self) -> list[dict[str, Any]]:
         """Gibt alle aktuellen Reste zurück (für Sensoren/Frontend)."""
         with self._lock:
@@ -1006,15 +960,6 @@ def async_register_services(hass: HomeAssistant, manager: MealPlanner) -> None:
         DOMAIN, "reste_entfernen",
         service_handler("reste_entfernen"),
         schema=vol.Schema({vol.Required("reste_id"): cv.string}),
-    )
-
-    hass.services.async_register(
-        DOMAIN, "reste_portionen_aendern",
-        service_handler("reste_portionen_aendern"),
-        schema=vol.Schema({
-            vol.Required("reste_id"): cv.string,
-            vol.Required("delta"): vol.Coerce(float),
-        }),
     )
 
     hass.data[DOMAIN]["services_registered"] = True
