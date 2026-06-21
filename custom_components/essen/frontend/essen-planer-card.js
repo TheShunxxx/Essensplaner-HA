@@ -578,7 +578,7 @@ class EssenPlanerCard extends HTMLElement {
     const dishes = this._filteredDishesByTyp(this._draft.pickerSearch || "", isAbend ? "Abend" : "Mittag");
 
     return `
-      <div class="modal-backdrop" data-action="close-picker">
+      <div class="modal-backdrop" data-action="close-picker" role="dialog" aria-modal="true">
         <div class="dish-picker-dialog">
           <div class="picker-head">
             <strong>${this._escape(title)}</strong>
@@ -692,6 +692,8 @@ class EssenPlanerCard extends HTMLElement {
     const action = event.currentTarget.dataset.action;
     const day = event.currentTarget.dataset.day;
 
+    if (await this._handleNavAction(action)) return;
+
     if (action === "set-plan-tab") { this._draft.planTab = event.currentTarget.dataset.tab || "mittag"; this._render(); return; }
 
     if (action === "open-day-picker") {
@@ -778,8 +780,152 @@ class EssenPlanerCard extends HTMLElement {
     this._loadResteFallback();
   }
 
-  // NOTE: The rest of original methods (create_plan, reroll, clear, edit/new, service calls etc.)
-  // should remain from your current repo file. This build focuses only on the grey-out behavior.
+  // ---------------------------------------------------------------------------
+  // Fehlende Basis-Methoden (Minimal-Implementierung)
+  // Ziel: Card muss wieder sicher laden (kein Konfigurationsfehler),
+  // ohne die bereits vorhandenen Views/Features umzubauen.
+  // ---------------------------------------------------------------------------
+
+  _focusedRole() {
+    const el = this.shadowRoot && this.shadowRoot.activeElement;
+    return el && el.dataset ? el.dataset.role : null;
+  }
+
+  _refreshEditList() {
+    // Edit-Search wird in dieser minimalen Edit-Ansicht nicht aktiv genutzt.
+  }
+
+  _refreshDayPickerList() {
+    // Suche im Picker aktualisiert sich per Render.
+    if (this._hass) this._render();
+  }
+
+  _currentPathMatches(segment) {
+    try {
+      const path = String(window.location && window.location.pathname ? window.location.pathname : "");
+      return path.includes(String(segment || ""));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  _selectCurrentWeek() {
+    const cur = this._currentIsoWeek();
+    this._draft.planYear = cur.year;
+    this._draft.planWeek = cur.week;
+  }
+
+  _sidebar(active) {
+    // Minimaler Sidebar-Platzhalter, damit das Layout nicht crasht.
+    return `
+      <aside class="sidebar">
+        <div class="side-title">Essensplaner</div>
+        <div class="side-actions">
+          <button class="plain-button ${active === "plan" ? "primary" : ""}" data-action="goto-plan">Plan</button>
+          <button class="plain-button ${active === "edit" ? "primary" : ""}" data-action="goto-edit">Gerichte</button>
+        </div>
+      </aside>
+    `;
+  }
+
+  _newDishView() {
+    return `
+      <div class="subpanel">
+        <div class="subhead"><strong>Neu</strong></div>
+        <div class="empty-list">In dieser Version nicht verfügbar.</div>
+      </div>
+    `;
+  }
+
+  _editDishView() {
+    // Wichtig: kein Crash. Liste reicht als "letzter stabiler" Ersatz.
+    const dishes = this._activeDishes();
+    const list = dishes.map((d) => `
+      <div class="abend-item" style="display:flex;flex-direction:column;gap:2px;">
+        <span>${this._escape(d.name || "")}</span>
+        <small style="opacity:.75">ID ${this._escape(d.id)} · K${this._escape(d.klasse)} · ${this._escape(d.typ || "")}</small>
+      </div>
+    `).join("");
+
+    return `
+      <div class="shell">
+        ${this._sidebar("edit")}
+        <section class="panel">
+          <div class="tab-label">Gerichte</div>
+          <div class="hint-line">Bearbeiten ist hier als Liste dargestellt, damit die Karte stabil läuft.</div>
+          <div class="abend-list">${list || `<div class="empty-list">Keine Gerichte gefunden.</div>`}</div>
+        </section>
+      </div>
+    `;
+  }
+
+  _openDayPicker(dayKey) {
+    this._draft.pickerMode = "day";
+    this._draft.pickerDay = dayKey;
+    this._draft.pickerSearch = this._draft.pickerSearch || "";
+    this._render();
+  }
+
+  _closeDayPicker() {
+    this._draft.pickerDay = null;
+    this._draft.pickerMode = "day";
+    this._draft.pickerSearch = "";
+    this._render();
+  }
+
+  async _chooseDishForDay(dayKey, dishId) {
+    const dish = this._activeDishes().find((d) => String(d.id) === String(dishId));
+    if (!dish) return;
+    await this._callPlanner("set_day", { day: dayKey, dish_id: dish.id });
+    this._closeDayPicker();
+  }
+
+  async _saveDayInput(inputEl) {
+    const dayKey = inputEl && inputEl.dataset ? inputEl.dataset.day : null;
+    if (!dayKey) return;
+    const name = String(inputEl.value || "").trim();
+    if (!name) {
+      await this._callPlanner("clear_day", { day: dayKey });
+      return;
+    }
+    await this._callPlanner("set_day", { day: dayKey, dish_name: name });
+  }
+
+  async _callPlanner(service, data) {
+    if (!this._hass) return;
+    await this._hass.callService("essen", service, data || {});
+  }
+
+  async _fetchDishesFallback() {
+    const resp = await fetch(`/local/essen-gerichte.json?v=${Date.now()}`, { cache: "no-store" });
+    const data = await resp.json();
+    if (data && Array.isArray(data.dishes)) return data.dishes;
+    if (Array.isArray(data)) return data;
+    return [];
+  }
+
+  _readSharedDishes() {
+    // In HA/iframe ist localStorage oft gesperrt → Memory-only.
+    this._draft._sharedDishes = this._draft._sharedDishes || { revision: 0, dishes: [] };
+    return this._draft._sharedDishes;
+  }
+
+  _writeSharedDishes(dishes) {
+    this._draft._sharedDishes = { revision: Date.now(), dishes: Array.isArray(dishes) ? dishes : [] };
+  }
+
+  _refreshAfterDataLoad() {
+    if (this._hass) this._render();
+  }
+
+  // Navigation (minimal)
+  async _handleNavAction(action) {
+    if (action === "goto-plan") { this.mode = "plan"; this._render(); return true; }
+    if (action === "goto-edit") { this.mode = "edit"; this._render(); return true; }
+    return false;
+  }
+
+  // NOTE: Ursprüngliche Methoden fehlen in diesem File; die Minimal-Implementierung hält die Card stabil.
 
   _filteredDishes(search) {
     // backwards compatible: default shows all
@@ -842,6 +988,18 @@ class EssenPlanerCard extends HTMLElement {
       .picker-list { max-height:480px; overflow:auto; border:1px solid var(--divider-color); border-radius:4px; }
       .reste-dialog-body { display:grid; gap: 10px; }
       .reste-dialog-name { font-size: 18px; font-weight: 800; }
+
+      /* minimal sidebar */
+      .shell { display:grid; grid-template-columns: 170px 1fr; gap: 14px; }
+      .sidebar { padding: 14px; border-right: 1px solid var(--divider-color); }
+      .side-title { font-weight: 800; margin-bottom: 10px; }
+      .side-actions { display:flex; flex-direction:column; gap:8px; }
+
+      /* small utility to match existing look */
+      .panel { padding: 14px; }
+      .tab-label { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; opacity: .75; margin-bottom: 10px; }
+      .hint-line { font-size: 13px; opacity: .8; margin-bottom: 10px; }
+      .empty-list { opacity: .75; padding: 12px; }
     `;
   }
 }
