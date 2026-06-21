@@ -1374,13 +1374,18 @@ class EssenPlanerCard extends HTMLElement {
     return `
       :host {
         display: block;
+        --ep-gap: 24px;
+        --ep-pad: 26px;
+        --ep-radius: 6px;
+        --ep-tap: 44px;
+        -webkit-tap-highlight-color: transparent;
       }
       ha-card {
         overflow: hidden;
       }
 
-      .plan-tabs { display:flex; gap:8px; margin-top: 10px; }
-      .plan-tab { font: inherit; border:1px solid var(--divider-color); background: var(--card-background-color); border-radius: 999px; padding: 6px 12px; cursor:pointer; font-weight: 800; }
+      .plan-tabs { display:flex; gap:8px; margin-top: 10px; flex-wrap: wrap; }
+      .plan-tab { font: inherit; border:1px solid var(--divider-color); background: var(--card-background-color); border-radius: 999px; padding: 6px 12px; cursor:pointer; font-weight: 800; min-height: var(--ep-tap); }
       .plan-tab.active { border-color: var(--primary-color); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--primary-color) 55%, transparent); }
 
       .day-row--grey .dish-input { background: var(--secondary-background-color); opacity: 0.55; }
@@ -1388,7 +1393,7 @@ class EssenPlanerCard extends HTMLElement {
       .day-row--grey .icon-button, .day-row--grey .plain-button { opacity: 0.65; }
 
       .modal-backdrop { position: fixed; inset: 0; z-index: 9999; display:flex; align-items:center; justify-content:center; padding:18px; background: rgba(0,0,0,.5); box-sizing:border-box; }
-      .dish-picker-dialog { width: min(620px, 100%); max-height: min(720px, 88vh); display:flex; flex-direction:column; gap:12px; padding:16px; background: var(--card-background-color); border:1px solid var(--divider-color); border-radius:6px; box-sizing:border-box; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+      .dish-picker-dialog { width: min(620px, 100%); max-height: min(720px, 88vh); display:flex; flex-direction:column; gap:12px; padding:16px; background: var(--card-background-color); border:1px solid var(--divider-color); border-radius: var(--ep-radius); box-sizing:border-box; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
       .picker-head { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:18px; }
       .picker-list { max-height:480px; overflow:auto; border:1px solid var(--divider-color); border-radius:4px; }
       .reste-dialog-body { display:grid; gap: 10px; }
@@ -1397,15 +1402,15 @@ class EssenPlanerCard extends HTMLElement {
       .shell {
         display: grid;
         grid-template-columns: 230px minmax(0, 1fr);
-        gap: 24px;
-        padding: 26px;
+        gap: var(--ep-gap);
+        padding: var(--ep-pad);
         box-sizing: border-box;
         min-height: 520px;
       }
       .sidebar {
         display: flex;
         flex-direction: column;
-        gap: 24px;
+        gap: var(--ep-gap);
         padding-top: 18px;
       }
       .side-button,
@@ -1416,13 +1421,14 @@ class EssenPlanerCard extends HTMLElement {
         color: var(--primary-text-color);
         border: 1px solid var(--divider-color);
         background: var(--card-background-color);
-        border-radius: 6px;
+        border-radius: var(--ep-radius);
         cursor: pointer;
       }
       .side-button {
-        min-height: 48px;
+        min-height: var(--ep-tap);
         font-size: 18px;
         font-weight: 700;
+        padding: 0 14px;
       }
       .side-button.active {
         border-color: var(--primary-color);
@@ -1464,25 +1470,26 @@ class EssenPlanerCard extends HTMLElement {
         text-align: center;
       }
       .week-button {
-        width: 34px;
+        width: 40px;
+        min-height: var(--ep-tap);
       }
       .plan-select,
       .text-input {
         color: var(--primary-text-color);
         background: var(--secondary-background-color);
         border: 1px solid var(--divider-color);
-        border-radius: 2px;
-        min-height: 34px;
-        padding: 4px 8px;
+        border-radius: 8px;
+        min-height: var(--ep-tap);
+        padding: 8px 10px;
         box-sizing: border-box;
+        font: inherit;
       }
       .plan-select {
         min-width: 160px;
-        font: inherit;
         font-weight: 700;
       }
       .plain-button {
-        min-height: 36px;
+        min-height: var(--ep-tap);
         padding: 0 18px;
         font-weight: 700;
       }
@@ -1502,14 +1509,14 @@ class EssenPlanerCard extends HTMLElement {
         margin: 0 0 14px;
         padding: 10px 12px;
         border: 1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));
-        border-radius: 4px;
+        border-radius: 10px;
         color: var(--secondary-text-color);
         background: color-mix(in srgb, var(--primary-color) 8%, transparent);
         font-weight: 600;
       }
       .day-row {
         display: grid;
-        grid-template-columns: 120px 64px minmax(180px, 1fr) 42px 42px 42px;
+        grid-template-columns: 120px 64px minmax(180px, 1fr) 44px 44px 44px;
         gap: 10px;
         align-items: center;
       }
@@ -1524,19 +1531,19 @@ class EssenPlanerCard extends HTMLElement {
         color: var(--primary-text-color);
         background: var(--secondary-background-color);
         border: 1px solid var(--divider-color);
-        border-radius: 2px;
+        border-radius: 8px;
         box-sizing: border-box;
         font: inherit;
       }
       .dish-input {
-        min-height: 38px;
-        padding: 6px 10px;
+        min-height: var(--ep-tap);
+        padding: 10px 12px;
         font-style: italic;
         font-weight: 700;
       }
       .icon-button {
-        width: 38px;
-        height: 32px;
+        width: var(--ep-tap);
+        height: var(--ep-tap);
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -1600,6 +1607,69 @@ class EssenPlanerCard extends HTMLElement {
         gap: 16px;
         justify-content: flex-end;
       }
+
+      /* --- Responsive / Mobile --- */
+      @media (max-width: 900px) {
+        :host { --ep-gap: 16px; --ep-pad: 16px; }
+        .shell { grid-template-columns: 1fr; min-height: unset; }
+        .sidebar { flex-direction: row; padding-top: 0; gap: 10px; flex-wrap: wrap; }
+        .side-button { flex: 1 1 160px; }
+        .panel { padding: 34px 12px 14px; }
+      }
+
+      @media (max-width: 600px) {
+        :host { --ep-gap: 12px; --ep-pad: 12px; }
+        .kw-line { font-size: 16px; gap: 10px; }
+        .selected-week { min-width: unset; }
+
+        .day-row {
+          grid-template-columns: 1fr 1fr;
+          grid-template-areas:
+            "name date"
+            "input input"
+            "btn1 btn2"
+            "btn3 btn4";
+          gap: 10px;
+          padding: 10px;
+          border: 1px solid var(--divider-color);
+          border-radius: 12px;
+          background: color-mix(in srgb, var(--card-background-color) 92%, transparent);
+        }
+        .day-name { grid-area: name; }
+        .day-date { grid-area: date; text-align: right; }
+        .dish-input { grid-area: input; }
+        .day-row .icon-button:nth-of-type(1) { grid-area: btn1; width: 100%; }
+        .day-row .icon-button:nth-of-type(2) { grid-area: btn2; width: 100%; }
+        .day-row .icon-button:nth-of-type(3) { grid-area: btn3; width: 100%; }
+        .day-row .icon-button:nth-of-type(4) { grid-area: btn4; width: 100%; }
+
+        .plan-tabs { gap: 10px; }
+        .plan-tab { flex: 1 1 90px; justify-content: center; }
+
+        .dish-picker-dialog {
+          width: 100%;
+          max-height: 92vh;
+          border-radius: 14px;
+        }
+        .picker-list { max-height: 52vh; }
+
+        .edit-grid { grid-template-columns: 1fr; }
+        .dish-list { max-height: 44vh; }
+
+        .abend-add, .reste-add { align-items: stretch; }
+        .abend-add .text-input, .reste-add .text-input, .reste-add .plan-select { flex: 1 1 100%; min-width: 0; }
+        .reste-add .text-input.small { max-width: 120px; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * { scroll-behavior: auto !important; }
+      }
+
+      :focus-visible {
+        outline: 3px solid color-mix(in srgb, var(--primary-color) 65%, transparent);
+        outline-offset: 2px;
+      }
+
       .edit-grid {
         display: grid;
         grid-template-columns: minmax(220px, 320px) minmax(320px, 1fr);
