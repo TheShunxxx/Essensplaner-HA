@@ -50,12 +50,21 @@ class EssenPlanerCard extends HTMLElement {
   }
 
   set hass(hass) {
-    const prevPlan = this._hass && this._hass.states && this._hass.states["sensor.essen_wochenplan"];
+    const prevPlan   = this._hass && this._hass.states && this._hass.states["sensor.essen_wochenplan"];
     const prevDishes = this._hass && this._hass.states && this._hass.states["sensor.essen_gerichte"];
-    const prevReste = this._hass && this._hass.states && this._hass.states["sensor.essen_reste"];
+    const prevReste  = this._hass && this._hass.states && this._hass.states["sensor.essen_reste"];
 
     this._hass = hass;
     this._ensureDraftDefaults();
+
+    const newPlan   = hass && hass.states && hass.states["sensor.essen_wochenplan"];
+    const newDishes = hass && hass.states && hass.states["sensor.essen_gerichte"];
+    const newReste  = hass && hass.states && hass.states["sensor.essen_reste"];
+
+    const planChanged   = !prevPlan   || !newPlan   || prevPlan.last_changed   !== newPlan.last_changed;
+    const dishesChanged = !prevDishes || !newDishes || prevDishes.last_changed !== newDishes.last_changed;
+    const resteChanged  = !prevReste  || !newReste  || prevReste.last_changed  !== newReste.last_changed;
+    const anyChanged    = planChanged || dishesChanged || resteChanged;
 
     const focusedRole = this._focusedRole();
     if (focusedRole) {
@@ -64,20 +73,11 @@ class EssenPlanerCard extends HTMLElement {
       return;
     }
 
-    // Nur rendern wenn sich ein relevanter Sensor geändert hat
-    const newPlan = hass && hass.states && hass.states["sensor.essen_wochenplan"];
-    const newDishes = hass && hass.states && hass.states["sensor.essen_gerichte"];
-    const newReste = hass && hass.states && hass.states["sensor.essen_reste"];
-
-    const planChanged = !prevPlan || !newPlan || prevPlan.last_changed !== newPlan.last_changed;
-    const dishesChanged = !prevDishes || !newDishes || prevDishes.last_changed !== newDishes.last_changed;
-    const resteChanged = !prevReste || !newReste || prevReste.last_changed !== newReste.last_changed;
-
     if (this.mode === "plan" && !this._draft.resteLoaded && !this._draft.resteLoading) {
       this._loadResteFallback();
     }
 
-    if (planChanged || dishesChanged || resteChanged) {
+    if (anyChanged) {
       this._render();
     }
   }
@@ -434,14 +434,43 @@ class EssenPlanerCard extends HTMLElement {
 
   _captureRenderState() {
     const editList = this.shadowRoot && this.shadowRoot.querySelector(".dish-list");
-    return { editListScrollTop: editList ? editList.scrollTop : null };
+    const active = this.shadowRoot && this.shadowRoot.activeElement;
+    let focusState = null;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) {
+      focusState = {
+        role: active.dataset && active.dataset.role,
+        id: active.id || null,
+        selStart: active.selectionStart != null ? active.selectionStart : null,
+        selEnd: active.selectionEnd != null ? active.selectionEnd : null,
+        value: active.value,
+      };
+    }
+    return { editListScrollTop: editList ? editList.scrollTop : null, focusState };
   }
 
   _restoreRenderState(state) {
-    if (!state || state.editListScrollTop == null) return;
+    if (!state) return;
     const restore = () => {
-      const editList = this.shadowRoot && this.shadowRoot.querySelector(".dish-list");
-      if (editList) editList.scrollTop = state.editListScrollTop;
+      if (state.editListScrollTop != null) {
+        const editList = this.shadowRoot && this.shadowRoot.querySelector(".dish-list");
+        if (editList) editList.scrollTop = state.editListScrollTop;
+      }
+      if (state.focusState) {
+        const fs = state.focusState;
+        let el = null;
+        if (fs.role) {
+          el = this.shadowRoot && this.shadowRoot.querySelector(`[data-role="${fs.role}"]`);
+        }
+        if (!el && fs.id) {
+          el = this.shadowRoot && this.shadowRoot.querySelector(`#${fs.id}`);
+        }
+        if (el) {
+          el.focus();
+          if (fs.selStart != null && el.setSelectionRange) {
+            try { el.setSelectionRange(fs.selStart, fs.selEnd); } catch(e) {}
+          }
+        }
+      }
     };
     restore();
     if (typeof requestAnimationFrame === "function") requestAnimationFrame(restore);
@@ -1501,7 +1530,6 @@ class EssenPlanerCard extends HTMLElement {
     const focusedRole = this._focusedRole();
     if (focusedRole === "edit-search") return this._refreshEditList();
     if (focusedRole === "day-picker-search") return this._refreshDayPickerList();
-    // Wenn irgendein Input fokussiert ist, kein vollständiger Re-Render
     if (focusedRole) return;
     this._render();
   }
