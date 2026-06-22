@@ -22,6 +22,7 @@ class EssenPlanerCard extends HTMLElement {
     this._draft.resteDialogDish = this._draft.resteDialogDish || "";
     this._draft.resteDialogPort = this._draft.resteDialogPort || "1";
     this._draft.resteDialogOrt = this._draft.resteDialogOrt || "Kühlschrank";
+    this._draft.resteDialogAblauf = this._draft.resteDialogAblauf || "";
     this._draft.resteDialogDayKey = this._draft.resteDialogDayKey || null;
 
     // UI flags: days already booked as leftovers (front-end only)
@@ -617,10 +618,11 @@ class EssenPlanerCard extends HTMLElement {
         <div class="reste-add">
           <input class="text-input" data-role="reste-name" placeholder="Gerichtname…" value="${this._escape(this._draft.resteName || "")}">
           <input class="text-input small" data-role="reste-port" placeholder="Port." value="${this._escape(this._draft.restePort || "")}">
-          <select class="plan-select" data-role="reste-ort">
+          <select class="plan-select" data-role="reste-ort" data-action="reste-ort-changed">
             <option value="Kühlschrank" ${String(this._draft.resteOrt || "Kühlschrank") === "Kühlschrank" ? "selected" : ""}>Kühlschrank</option>
             <option value="Eingefroren" ${String(this._draft.resteOrt || "") === "Eingefroren" ? "selected" : ""}>Gefrierschrank</option>
           </select>
+          <input class="text-input small" type="date" data-role="reste-ablauf" value="${this._escape(this._draft.resteAblauf || this._defaultAblaufForOrt(this._draft.resteOrt || "Kühlschrank"))}" autocomplete="off">
           <button class="plain-button primary" data-action="reste-add">Einbuchen</button>
           <button class="plain-button" data-action="reste-refresh">Aktualisieren</button>
         </div>
@@ -709,6 +711,21 @@ class EssenPlanerCard extends HTMLElement {
     `;
   }
 
+  _isoDateAddDays(isoDate, days) {
+    const d = new Date(isoDate + "T00:00:00");
+    d.setDate(d.getDate() + days);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${dd}`;
+  }
+
+  _defaultAblaufForOrt(ort, baseDate) {
+    const base = baseDate || this._todayIso();
+    const days = String(ort || "").toLowerCase().includes("eingefror") ? 90 : 3;
+    return this._isoDateAddDays(base, days);
+  }
+
   _resteFromDayOverlay() {
     if (!this._draft.resteDialogOpen) return "";
     const dish = String(this._draft.resteDialogDish || "");
@@ -729,10 +746,12 @@ class EssenPlanerCard extends HTMLElement {
             <label class="field-label">Portionen</label>
             <input class="text-input" data-role="reste-dialog-port" value="${this._escape(this._draft.resteDialogPort || "1")}" autocomplete="off" inputmode="numeric">
             <label class="field-label">Ort</label>
-            <select class="plan-select" data-role="reste-dialog-ort">
+            <select class="plan-select" data-role="reste-dialog-ort" data-action="reste-dialog-ort-changed">
               <option value="Kühlschrank" ${String(this._draft.resteDialogOrt || "Kühlschrank") === "Kühlschrank" ? "selected" : ""}>Kühlschrank</option>
               <option value="Eingefroren" ${String(this._draft.resteDialogOrt || "") === "Eingefroren" ? "selected" : ""}>Gefrierschrank</option>
             </select>
+            <label class="field-label">Haltbar bis</label>
+            <input class="text-input" type="date" data-role="reste-dialog-ablauf" value="${this._escape(this._draft.resteDialogAblauf || "")}" autocomplete="off">
             <div class="form-actions">
               <button class="plain-button primary" data-action="confirm-reste-dialog">Einbuchen</button>
               <button class="plain-button" data-action="close-reste-dialog">Abbrechen</button>
@@ -944,9 +963,11 @@ class EssenPlanerCard extends HTMLElement {
 
     if (role === "reste-name") this._draft.resteName = target.value;
     if (role === "reste-port") this._draft.restePort = target.value;
-    if (role === "reste-ort") this._draft.resteOrt = target.value;
+    if (role === "reste-ort") { this._draft.resteOrt = target.value; }
+    if (role === "reste-ablauf") this._draft.resteAblauf = target.value;
     if (role === "reste-dialog-port") this._draft.resteDialogPort = target.value;
-    if (role === "reste-dialog-ort") this._draft.resteDialogOrt = target.value;
+    if (role === "reste-dialog-ort") { this._draft.resteDialogOrt = target.value; }
+    if (role === "reste-dialog-ablauf") this._draft.resteDialogAblauf = target.value;
 
     if (role === "reste-port-set") {
       // live update only; commit happens on blur / Enter
@@ -966,6 +987,22 @@ class EssenPlanerCard extends HTMLElement {
 
     if (action === "set-plan-tab") {
       this._draft.planTab = event.currentTarget.dataset.tab || "mittag";
+      this._render();
+      return;
+    }
+
+    // Wenn Ort geändert wird: Ablaufdatum-Vorschlag neu berechnen
+    if (action === "reste-dialog-ort-changed") {
+      const newOrt = event.currentTarget.value;
+      this._draft.resteDialogOrt = newOrt;
+      this._draft.resteDialogAblauf = this._defaultAblaufForOrt(newOrt);
+      this._render();
+      return;
+    }
+    if (action === "reste-ort-changed") {
+      const newOrt = event.currentTarget.value;
+      this._draft.resteOrt = newOrt;
+      this._draft.resteAblauf = this._defaultAblaufForOrt(newOrt);
       this._render();
       return;
     }
@@ -1006,11 +1043,23 @@ class EssenPlanerCard extends HTMLElement {
       const dayKey = event.currentTarget.dataset.day || null;
       const source = String(event.currentTarget.dataset.source || "");
       if (!dish) return;
+
+      // Datum des Tages aus dem Plan ermitteln (für Vorschlag Ablaufdatum)
+      let dayDate = null;
+      if (dayKey) {
+        const plan = this._planAttrs();
+        const dayEntry = (plan.days || []).find((d) => d.key === dayKey);
+        dayDate = dayEntry && dayEntry.date ? dayEntry.date : null;
+      }
+      const defaultOrt = "Kühlschrank";
+      const defaultAblauf = this._defaultAblaufForOrt(defaultOrt, dayDate);
+
       this._draft.resteDialogOpen = true;
       this._draft.resteDialogDish = dish;
       this._draft.resteDialogDayKey = dayKey;
       this._draft.resteDialogPort = "1";
-      this._draft.resteDialogOrt = "Kühlschrank";
+      this._draft.resteDialogOrt = defaultOrt;
+      this._draft.resteDialogAblauf = defaultAblauf;
       this._draft.resteDialogSource = source;
       this._render();
       return;
@@ -1021,6 +1070,7 @@ class EssenPlanerCard extends HTMLElement {
       this._draft.resteDialogDish = "";
       this._draft.resteDialogDayKey = null;
       this._draft.resteDialogSource = "";
+      this._draft.resteDialogAblauf = "";
       this._render();
       return;
     }
@@ -1043,11 +1093,13 @@ class EssenPlanerCard extends HTMLElement {
     if (!dish) return this._notify("Bitte einen Gerichtnamen eingeben.");
     const portionen = String(this._draft.restePort || "1").trim() || "1";
     const ort = String(this._draft.resteOrt || "Kühlschrank");
+    const ablauf = String(this._draft.resteAblauf || this._defaultAblaufForOrt(ort)).trim();
 
-    await this._callPlanner("reste_hinzufuegen", { gericht_name: dish, portionen, ort });
+    await this._callPlanner("reste_hinzufuegen", { gericht_name: dish, portionen, ort, ablauf_datum: ablauf });
 
     this._draft.resteName = "";
     this._draft.restePort = "";
+    this._draft.resteAblauf = "";
     this._draft.resteOrt = ort;
 
     this._draft.resteLoaded = false;
@@ -1177,8 +1229,9 @@ class EssenPlanerCard extends HTMLElement {
     const dayKey = this._draft.resteDialogDayKey;
     const portionen = String(this._draft.resteDialogPort || "1").trim() || "1";
     const ort = String(this._draft.resteDialogOrt || "Kühlschrank");
+    const ablauf = String(this._draft.resteDialogAblauf || this._defaultAblaufForOrt(ort)).trim();
 
-    await this._callPlanner("reste_hinzufuegen", { gericht_name: dish, portionen, ort });
+    await this._callPlanner("reste_hinzufuegen", { gericht_name: dish, portionen, ort, ablauf_datum: ablauf });
 
     if (dayKey) {
       this._draft.uiResteBookedDays = this._draft.uiResteBookedDays || {};
@@ -1517,8 +1570,8 @@ class EssenPlanerCard extends HTMLElement {
     const role = activeElement && activeElement.dataset ? activeElement.dataset.role : null;
     return [
       "edit-search", "day-picker-search", "day-input", "new-name", "edit-name",
-      "reste-dialog-port", "reste-name", "reste-port", "abend-name",
-      "reste-port-set", "abend-picker-search"
+      "reste-dialog-port", "reste-dialog-ablauf", "reste-name", "reste-port",
+      "reste-ablauf", "abend-name", "reste-port-set", "abend-picker-search"
     ].includes(role) ? role : null;
   }
 
