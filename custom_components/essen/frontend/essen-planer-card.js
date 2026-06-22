@@ -567,9 +567,10 @@ class EssenPlanerCard extends HTMLElement {
         <div class="hint-line">Liste zeigt nur Gerichte vom Typ <strong>Abend</strong>.</div>
 
         <div class="abend-list">
-          ${pool.length ? pool.map((name) => `
-            <div class="abend-item">
-              <span>${this._escape(name)}</span>
+          ${pool.length ? pool.map((name, idx) => `
+            <div class="abend-row">
+              <div class="abend-num">${idx + 1}.</div>
+              <div class="abend-name">${this._escape(name)}</div>
               <button class="icon-button" title="Als Reste einbuchen" data-action="open-reste-dialog" data-dish="${this._escape(name)}" data-source="abend">
                 <ha-icon icon="mdi:food-variant"></ha-icon>
               </button>
@@ -627,6 +628,7 @@ class EssenPlanerCard extends HTMLElement {
           <button class="plain-button" data-action="reste-refresh">Aktualisieren</button>
         </div>
         <div class="reste-list">
+          ${sorted.length ? `<div class="reste-list-header"><span class="reste-header-haltbar">Haltbar</span></div>` : ""}
           ${sorted.length ? sorted.map((r) => {
             const badge = this._resteBadge(r);
             const ortLabel = String(r.ort || "");
@@ -1707,6 +1709,53 @@ class EssenPlanerCard extends HTMLElement {
       .picker-list { max-height:480px; overflow:auto; border:1px solid var(--divider-color); border-radius:4px; }
       .reste-dialog-body { display:grid; gap: 10px; }
       .reste-dialog-name { font-size: 18px; font-weight: 800; }
+
+      /* Abend-Liste – Mittag-Stil */
+      .abend-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+      .abend-row {
+        display: grid;
+        grid-template-columns: 36px minmax(180px, 1fr) 44px 44px;
+        gap: 10px;
+        align-items: center;
+      }
+      .abend-num {
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--secondary-text-color);
+        text-align: right;
+        padding-right: 4px;
+      }
+      .abend-name {
+        background: var(--secondary-background-color);
+        border: 1px solid var(--divider-color);
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-size: inherit;
+        font-weight: 700;
+        font-style: italic;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        box-sizing: border-box;
+      }
+
+      /* Reste-Liste Header */
+      .reste-list-header {
+        display: grid;
+        grid-template-columns: 56px 1fr;
+        gap: 12px;
+        padding: 4px 0 2px;
+        border-bottom: 1px solid var(--divider-color);
+        margin-bottom: 4px;
+      }
+      .reste-header-haltbar {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--secondary-text-color);
+        text-align: center;
+      }
 
       .shell {
         display: grid;
