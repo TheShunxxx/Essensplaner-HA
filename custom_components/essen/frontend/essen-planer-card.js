@@ -26,6 +26,9 @@ class EssenPlanerCard extends HTMLElement {
     this._draft.resteDialogDayKey = this._draft.resteDialogDayKey || null;
 
     // UI flags: days already booked as leftovers (front-end only)
+    // UI flags: abendessen checked (front-end only)
+    this._draft.uiAbendDone = this._draft.uiAbendDone || {};
+
     this._draft.uiResteBookedDays = this._draft.uiResteBookedDays || {};
 
     this._boundLocationHandler = this._boundLocationHandler || (() => this._handleLocationChange());
@@ -568,7 +571,10 @@ class EssenPlanerCard extends HTMLElement {
 
         <div class="abend-list">
           ${pool.length ? pool.map((name, idx) => `
-            <div class="abend-row">
+            <div class="abend-row ${this._draft.uiAbendDone && this._draft.uiAbendDone[this._searchText(name)] ? "abend-row--done" : ""}">
+              <button class="icon-button" title="Erledigt umschalten" data-action="abend-toggle-done" data-name="${this._escape(name)}">
+                <ha-icon icon="mdi:check"></ha-icon>
+              </button>
               <div class="abend-num">${idx + 1}.</div>
               <div class="abend-name">${this._escape(name)}</div>
               <button class="icon-button" title="Als Reste einbuchen" data-action="open-reste-dialog" data-dish="${this._escape(name)}" data-source="abend">
