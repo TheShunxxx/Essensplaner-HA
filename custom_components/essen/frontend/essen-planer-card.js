@@ -50,6 +50,10 @@ class EssenPlanerCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const prevPlan = this._hass && this._hass.states && this._hass.states["sensor.essen_wochenplan"];
+    const prevDishes = this._hass && this._hass.states && this._hass.states["sensor.essen_gerichte"];
+    const prevReste = this._hass && this._hass.states && this._hass.states["sensor.essen_reste"];
+
     this._hass = hass;
     this._ensureDraftDefaults();
 
@@ -60,11 +64,22 @@ class EssenPlanerCard extends HTMLElement {
       return;
     }
 
+    // Nur rendern wenn sich ein relevanter Sensor geändert hat
+    const newPlan = hass && hass.states && hass.states["sensor.essen_wochenplan"];
+    const newDishes = hass && hass.states && hass.states["sensor.essen_gerichte"];
+    const newReste = hass && hass.states && hass.states["sensor.essen_reste"];
+
+    const planChanged = !prevPlan || !newPlan || prevPlan.last_changed !== newPlan.last_changed;
+    const dishesChanged = !prevDishes || !newDishes || prevDishes.last_changed !== newDishes.last_changed;
+    const resteChanged = !prevReste || !newReste || prevReste.last_changed !== newReste.last_changed;
+
     if (this.mode === "plan" && !this._draft.resteLoaded && !this._draft.resteLoading) {
       this._loadResteFallback();
     }
 
-    this._render();
+    if (planChanged || dishesChanged || resteChanged) {
+      this._render();
+    }
   }
 
   _handleLocationChange() {
@@ -1486,6 +1501,7 @@ class EssenPlanerCard extends HTMLElement {
     const focusedRole = this._focusedRole();
     if (focusedRole === "edit-search") return this._refreshEditList();
     if (focusedRole === "day-picker-search") return this._refreshDayPickerList();
+    // Wenn irgendein Input fokussiert ist, kein vollständiger Re-Render
     if (focusedRole) return;
     this._render();
   }
@@ -1493,7 +1509,7 @@ class EssenPlanerCard extends HTMLElement {
   _focusedRole() {
     const activeElement = this.shadowRoot && this.shadowRoot.activeElement;
     const role = activeElement && activeElement.dataset ? activeElement.dataset.role : null;
-    return ["edit-search", "day-picker-search", "day-input", "new-name", "edit-name", "reste-dialog-port"].includes(role)
+    return ["edit-search", "day-picker-search", "day-input", "new-name", "edit-name", "reste-dialog-port", "reste-name", "reste-port", "abend-name", "reste-port-set", "abend-picker-search"].includes(role)
       ? role
       : null;
   }
