@@ -604,6 +604,56 @@ class EssenPlanerCard extends HTMLElement {
     return Math.round((db - da) / 86400000);
   }
 
+  _resteListHtml(sorted) {
+    if (!sorted || !sorted.length) return `<div class="empty-list">Keine Reste eingetragen.</div>`;
+    const kuehl = sorted.filter(r => !String(r.ort || "").toLowerCase().includes("eingefror"));
+    const gefrier = sorted.filter(r => String(r.ort || "").toLowerCase().includes("eingefror"));
+
+    const renderItem = (r) => {
+      const badge = this._resteBadge(r);
+      const ortLabel = String(r.ort || "");
+      const ortPretty = ortLabel.toLowerCase().includes("eingefror") ? "Gefrierschrank" : ortLabel;
+      return `
+        <div class="reste-item">
+          <span class="badge ${badge.cls}">${this._escape(badge.text)}</span>
+          <div class="reste-text">
+            <strong>${this._escape(r.gericht || "")}</strong>
+            <div class="reste-meta">
+              <span>${this._escape(ortPretty || "")}</span>
+              ${r.ablauf_datum ? `<span>· Ablauf ${this._escape(r.ablauf_datum)}</span>` : ""}
+            </div>
+            <div class="reste-controls">
+              <span class="reste-port-label">Portionen</span>
+              <div class="stepper" role="group" aria-label="Portionen anpassen">
+                <button class="icon-button" title="-0,5" data-action="reste-port-delta" data-id="${this._escape(r.id)}" data-delta="-0.5">
+                  <ha-icon icon="mdi:chevron-down"></ha-icon>
+                </button>
+                <input class="stepper-input" data-role="reste-port-set" data-id="${this._escape(r.id)}" value="${this._escape(r.portionen || "0")}" inputmode="decimal" autocomplete="off">
+                <button class="icon-button" title="+0,5" data-action="reste-port-delta" data-id="${this._escape(r.id)}" data-delta="0.5">
+                  <ha-icon icon="mdi:chevron-up"></ha-icon>
+                </button>
+              </div>
+            </div>
+          </div>
+          <button class="icon-button danger" title="Entfernen" data-action="reste-remove" data-id="${this._escape(r.id)}">
+            <ha-icon icon="mdi:close-thick"></ha-icon>
+          </button>
+        </div>
+      `;
+    };
+
+    let html = '';
+    if (kuehl.length) {
+      html += `<div class="reste-section-header reste-section-kuehl"><ha-icon icon="mdi:fridge-outline"></ha-icon> Kühlschrank</div>`;
+      html += kuehl.map(renderItem).join('');
+    }
+    if (gefrier.length) {
+      html += `<div class="reste-section-header reste-section-gefrier"><ha-icon icon="mdi:snowflake"></ha-icon> Gefrierfach</div>`;
+      html += gefrier.map(renderItem).join('');
+    }
+    return html;
+  }
+
   _resteBadge(entry) {
     const today = this._todayIso();
     const ablauf = String(entry.ablauf_datum || "");
