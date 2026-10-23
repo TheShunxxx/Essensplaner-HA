@@ -95,6 +95,64 @@ clear_day:
           min: 1
           max: 53
           mode: box
+move_day:
+  name: Gericht verschieben
+  description: Verschiebt das Gericht eines Tages auf einen anderen Tag. Ist der Zieltag belegt, rücken die folgenden Gerichte bis zur nächsten Lücke nach.
+  fields:
+    from_day:
+      name: Von Tag
+      required: true
+      selector:
+        text:
+    to_day:
+      name: Nach Tag
+      required: true
+      selector:
+        text:
+    year:
+      name: Jahr
+      selector:
+        number:
+          min: 2000
+          max: 2100
+          mode: box
+    week:
+      name: Kalenderwoche
+      selector:
+        number:
+          min: 1
+          max: 53
+          mode: box
+abendessen_verschieben:
+  name: Abendessen verschieben
+  description: Verschiebt ein Gericht im Abendessen-Pool an eine neue Position.
+  fields:
+    gericht_name:
+      name: Gerichtsname
+      required: true
+      selector:
+        text:
+    position:
+      name: Neue Position (0 = ganz oben)
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+    year:
+      name: Jahr
+      selector:
+        number:
+          min: 2000
+          max: 2100
+          mode: box
+    week:
+      name: Kalenderwoche
+      selector:
+        number:
+          min: 1
+          max: 53
+          mode: box
 add_dish:
   name: Gericht hinzufügen
   description: Fügt ein neues aktives Gericht hinzu.
@@ -149,3 +207,35 @@ deactivate_dish:
         number:
           min: 1
           mode: box
+reste_bearbeiten:
+  name: Reste bearbeiten
+  description: Ändert Gericht, Portionen, Ort oder Datum eines eingebuchten Reste-Eintrags.
+  fields:
+    reste_id:
+      name: Reste-ID
+      required: true
+      selector:
+        text:
+    gericht_name:
+      name: Gerichtsname
+      selector:
+        text:
+    portionen:
+      name: Portionen
+      selector:
+        text:
+    ort:
+      name: Ort
+      selector:
+        select:
+          options:
+            - Kühlschrank
+            - Eingefroren
+    datum_gekocht:
+      name: Gekocht am
+      selector:
+        date:
+    ablauf_datum:
+      name: Haltbar bis
+      selector:
+        date:

@@ -430,6 +430,12 @@ class EssenPlanerCard extends HTMLElement {
 
   _render() {
     if (!this._hass) return;
+    if (this._drag) {
+      // Während eines Drag-Vorgangs nicht neu zeichnen, sonst verschwindet das gezogene Element.
+      this._renderPending = true;
+      return;
+    }
+    this._renderPending = false;
     const renderState = this._captureRenderState();
     this.shadowRoot.innerHTML = `
       <style>${this._styles()}</style>
@@ -498,25 +504,35 @@ class EssenPlanerCard extends HTMLElement {
           ${hasPlan ? "" : `<div class="plan-notice">Für ${this._escape(plan.label)} gibt es noch keinen Plan.</div>`}
 
           ${tab === "mittag" ? `
-            <div class="days">
+            <div class="days" data-drag-list="days">
               ${days.length ? days.map((day) => this._dayRow(day)).join("") : `<div class="empty-plan">Noch kein Plan.</div>`}
             </div>
             ${this._dishPickerOverlay()}
-            ${this._resteFromDayOverlay()}
           ` : ""}
 
           ${tab === "abend" ? this._abendView(plan) : ""}
           ${tab === "reste" ? this._resteView() : ""}
 
+          ${this._resteFromDayOverlay()}
           ${this._abendPickerOverlay()}
         </section>
       </div>
     `;
   }
 
-  _dayRow(day) {
+  _dayValue(day) {
     const draftValue = this._draft[`day-${day.key}`];
-    const value = draftValue != null ? draftValue : day.dish_name || "";
+    return draftValue != null ? draftValue : day.dish_name || "";
+  }
+
+  _dragHandle(enabled) {
+    return enabled
+      ? `<div class="drag-handle" data-drag-handle title="Ziehen zum Verschieben"><ha-icon icon="mdi:drag"></ha-icon></div>`
+      : `<div class="drag-handle drag-handle--disabled"><ha-icon icon="mdi:drag"></ha-icon></div>`;
+  }
+
+  _dayRow(day) {
+    const value = this._dayValue(day);
     const hasDish = String(value || "").trim().length > 0;
 
     const booked = !!(this._draft.uiResteBookedDays && this._draft.uiResteBookedDays[day.key]);
@@ -524,7 +540,8 @@ class EssenPlanerCard extends HTMLElement {
     const grey = booked || past;
 
     return `
-      <div class="day-row ${grey ? "day-row--grey" : ""}" draggable="true" data-drag-day="${this._escape(day.key)}">
+      <div class="day-row ${grey ? "day-row--grey" : ""}" data-drag-item="${this._escape(day.key)}">
+        ${this._dragHandle(hasDish)}
         <div class="day-name">${this._escape(day.name)}</div>
         <div class="day-date">${this._escape(day.date_display || "")}</div>
         <input
@@ -569,9 +586,10 @@ class EssenPlanerCard extends HTMLElement {
 
         <div class="hint-line">Liste zeigt nur Gerichte vom Typ <strong>Abend</strong>.</div>
 
-        <div class="abend-list">
+        <div class="abend-list" data-drag-list="abend">
           ${pool.length ? pool.map((name, idx) => `
-            <div class="abend-row ${this._draft.uiAbendDone && this._draft.uiAbendDone[this._searchText(name)] ? "abend-row--done" : ""}">
+            <div class="abend-row ${this._draft.uiAbendDone && this._draft.uiAbendDone[this._searchText(name)] ? "abend-row--done" : ""}" data-drag-item="${idx}">
+              ${this._dragHandle(pool.length > 1)}
               <div class="abend-num">${idx + 1}.</div>
               <div class="abend-name">${this._escape(name)}</div>
               <button class="icon-button abend-check ${this._draft.uiAbendDone && this._draft.uiAbendDone[this._searchText(name)] ? "abend-check--active" : ""}" title="Erledigt umschalten" data-action="abend-toggle-done" data-name="${this._escape(name)}">
@@ -635,9 +653,14 @@ class EssenPlanerCard extends HTMLElement {
               </div>
             </div>
           </div>
-          <button class="icon-button danger" title="Entfernen" data-action="reste-remove" data-id="${this._escape(r.id)}">
-            <ha-icon icon="mdi:close-thick"></ha-icon>
-          </button>
+          <div class="reste-actions">
+            <button class="icon-button" title="Bearbeiten" data-action="open-reste-edit" data-id="${this._escape(r.id)}">
+              <ha-icon icon="mdi:pencil"></ha-icon>
+            </button>
+            <button class="icon-button danger" title="Entfernen" data-action="reste-remove" data-id="${this._escape(r.id)}">
+              <ha-icon icon="mdi:close-thick"></ha-icon>
+            </button>
+          </div>
         </div>
       `;
     };
@@ -687,7 +710,6 @@ class EssenPlanerCard extends HTMLElement {
           ${this._resteListHtml(sorted)}
         </div>
       </div>
-      ${this._abendPickerOverlay()}
     `;
   }
 
@@ -754,22 +776,28 @@ class EssenPlanerCard extends HTMLElement {
   _resteFromDayOverlay() {
     if (!this._draft.resteDialogOpen) return "";
     const dish = String(this._draft.resteDialogDish || "");
+    const editing = this._draft.resteDialogMode === "edit";
     return `
       <div class="modal-backdrop" data-action="close-reste-dialog">
         <div class="dish-picker-dialog" data-role="reste-dialog">
           <div class="picker-head">
-            <strong>Reste einbuchen</strong>
+            <strong>${editing ? "Reste bearbeiten" : "Reste einbuchen"}</strong>
             <button class="icon-button" title="Schließen" data-action="close-reste-dialog">
               <ha-icon icon="mdi:close"></ha-icon>
             </button>
           </div>
           <div class="reste-dialog-body">
-            <div class="reste-dialog-dish">
-              <small>Gericht</small>
-              <div class="reste-dialog-name">${this._escape(dish)}</div>
-            </div>
+            ${editing ? `
+              <label class="field-label">Gericht</label>
+              <input class="text-input" data-role="reste-dialog-name" value="${this._escape(dish)}" autocomplete="off">
+            ` : `
+              <div class="reste-dialog-dish">
+                <small>Gericht</small>
+                <div class="reste-dialog-name">${this._escape(dish)}</div>
+              </div>
+            `}
             <label class="field-label">Portionen</label>
-            <input class="text-input" data-role="reste-dialog-port" value="${this._escape(this._draft.resteDialogPort || "1")}" autocomplete="off" inputmode="numeric">
+            <input class="text-input" data-role="reste-dialog-port" value="${this._escape(this._draft.resteDialogPort || "1")}" autocomplete="off" inputmode="decimal">
             <label class="field-label">Ort</label>
             <div class="ort-toggle" role="group">
               <button class="ort-btn ${String(this._draft.resteDialogOrt || "Kühlschrank") === "Kühlschrank" ? "ort-btn--active" : ""}" data-action="reste-dialog-ort-changed" data-ort="Kühlschrank">❄ Kühlschrank</button>
@@ -778,7 +806,7 @@ class EssenPlanerCard extends HTMLElement {
             <label class="field-label">Haltbar bis</label>
             <input class="text-input" type="date" data-role="reste-dialog-ablauf" value="${this._escape(this._draft.resteDialogAblauf || "")}" autocomplete="off">
             <div class="form-actions">
-              <button class="plain-button primary" data-action="confirm-reste-dialog">Einbuchen</button>
+              <button class="plain-button primary" data-action="confirm-reste-dialog">${editing ? "Speichern" : "Einbuchen"}</button>
               <button class="plain-button" data-action="close-reste-dialog">Abbrechen</button>
             </div>
           </div>
@@ -908,14 +936,9 @@ class EssenPlanerCard extends HTMLElement {
 
   _bindEvents() {
     this._bindActions(this.shadowRoot);
-    const pickerDialog = this.shadowRoot.querySelector(".dish-picker-dialog");
-    if (pickerDialog) {
-      pickerDialog.addEventListener("click", (event) => event.stopPropagation());
-    }
-    const resteDialog = this.shadowRoot.querySelector('[data-role="reste-dialog"]');
-    if (resteDialog) {
-      resteDialog.addEventListener("click", (event) => event.stopPropagation());
-    }
+    this.shadowRoot.querySelectorAll(".dish-picker-dialog").forEach((dialog) => {
+      dialog.addEventListener("click", (event) => event.stopPropagation());
+    });
 
     this._bindDragDrop();
 
@@ -961,57 +984,165 @@ class EssenPlanerCard extends HTMLElement {
   }
 
   _bindDragDrop() {
-    const rows = this.shadowRoot.querySelectorAll(".day-row[data-drag-day]");
-    let dragSrc = null;
-    rows.forEach((row) => {
-      row.addEventListener("dragstart", (e) => {
-        dragSrc = row.dataset.dragDay;
-        row.classList.add("dragging");
-        e.dataTransfer.effectAllowed = "move";
-      });
-      row.addEventListener("dragend", () => {
-        row.classList.remove("dragging");
-        rows.forEach(r => r.classList.remove("drag-over"));
-      });
-      row.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        rows.forEach(r => r.classList.remove("drag-over"));
-        row.classList.add("drag-over");
-      });
-      row.addEventListener("dragleave", () => {
-        row.classList.remove("drag-over");
-      });
-      row.addEventListener("drop", (e) => {
-        e.preventDefault();
-        row.classList.remove("drag-over");
-        const targetDay = row.dataset.dragDay;
-        if (!dragSrc || dragSrc === targetDay) return;
-        this._swapDays(dragSrc, targetDay);
-      });
+    this.shadowRoot.querySelectorAll("[data-drag-handle]").forEach((handle) => {
+      handle.addEventListener("pointerdown", (event) => this._startDrag(event, handle));
     });
   }
 
-  async _swapDays(dayA, dayB) {
-    const plan = this._planAttrs();
-    const days = plan.days || [];
-    const entryA = days.find(d => d.key === dayA);
-    const entryB = days.find(d => d.key === dayB);
-    if (!entryA || !entryB) return;
-    const nameA = this._draft["day-" + dayA] != null ? this._draft["day-" + dayA] : (entryA.dish_name || "");
-    const nameB = this._draft["day-" + dayB] != null ? this._draft["day-" + dayB] : (entryB.dish_name || "");
-    this._draft["day-" + dayA] = nameB;
-    this._draft["day-" + dayB] = nameA;
-    this._render();
-    await Promise.all([
-      this._callPlanner("set_day", this._planPayload({ day: dayA, dish_name: nameB })),
-      this._callPlanner("set_day", this._planPayload({ day: dayB, dish_name: nameA })),
-    ]);
-    delete this._draft["day-" + dayA];
-    delete this._draft["day-" + dayB];
+  // Pointer-Events funktionieren gleichermaßen mit Maus (PC) und Touch (Handy).
+  _startDrag(event, handle) {
+    if (this._drag) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const item = handle.closest("[data-drag-item]");
+    const list = item && item.closest("[data-drag-list]");
+    if (!item || !list) return;
+    event.preventDefault();
+
+    const rect = item.getBoundingClientRect();
+    const drag = {
+      item,
+      list,
+      target: null,
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      grabOffset: event.clientY - rect.top,
+      relTop: rect.top - list.getBoundingClientRect().top,
+      frame: null,
+    };
+    this._drag = drag;
+    item.classList.add("dragging");
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch (e) {
+      // ignore
+    }
+
+    const onMove = (e) => {
+      if (e.pointerId !== drag.pointerId) return;
+      e.preventDefault();
+      drag.x = e.clientX;
+      drag.y = e.clientY;
+      this._updateDrag();
+    };
+    const onEnd = (e) => {
+      if (e.pointerId !== drag.pointerId) return;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+      this._endDrag(e.type === "pointerup");
+    };
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+
+    const autoScroll = () => {
+      if (this._drag !== drag) return;
+      const edge = 70;
+      let dy = 0;
+      if (drag.y < edge) dy = -Math.ceil((edge - drag.y) / 6);
+      else if (drag.y > window.innerHeight - edge) dy = Math.ceil((drag.y - (window.innerHeight - edge)) / 6);
+      if (dy) {
+        window.scrollBy(0, dy);
+        this._updateDrag();
+      }
+      drag.frame = requestAnimationFrame(autoScroll);
+    };
+    drag.frame = requestAnimationFrame(autoScroll);
+    this._updateDrag();
   }
 
-    _bindActions(root) {
+  _updateDrag() {
+    const drag = this._drag;
+    if (!drag) return;
+    const layoutTop = drag.list.getBoundingClientRect().top + drag.relTop;
+    drag.item.style.transform = `translateY(${drag.y - drag.grabOffset - layoutTop}px)`;
+
+    const hit = this.shadowRoot.elementFromPoint(drag.x, drag.y);
+    const over = hit && hit.closest ? hit.closest("[data-drag-item]") : null;
+    const target = over && over !== drag.item && drag.list.contains(over) ? over : null;
+    if (target === drag.target) return;
+    if (drag.target) drag.target.classList.remove("drag-over");
+    if (target) target.classList.add("drag-over");
+    drag.target = target;
+  }
+
+  _endDrag(commit) {
+    const drag = this._drag;
+    if (!drag) return;
+    if (drag.frame) cancelAnimationFrame(drag.frame);
+    drag.item.classList.remove("dragging");
+    drag.item.style.transform = "";
+    if (drag.target) drag.target.classList.remove("drag-over");
+    this._drag = null;
+
+    const from = drag.item.dataset.dragItem;
+    const to = drag.target ? drag.target.dataset.dragItem : null;
+    const listType = drag.list.dataset.dragList;
+    if (commit && to != null && to !== from) {
+      if (listType === "days") return this._moveDay(from, to);
+      if (listType === "abend") return this._moveAbend(Number(from), Number(to));
+    }
+    if (this._renderPending) this._render();
+  }
+
+  // Liefert für jede Position den Index des Eintrags, der nach dem Verschieben dort steht (-1 = leer).
+  // Gleiche Logik wie move_day im Backend: leerer Zieltag -> einfach verschieben,
+  // belegter Zieltag -> Gerichte rücken bis zur nächsten Lücke nach.
+  _moveOrder(filled, src, dst) {
+    const order = filled.map((isFilled, index) => (isFilled ? index : -1));
+    const moving = order[src];
+    order[src] = -1;
+    const step = src > dst ? 1 : -1;
+    let gap = dst;
+    while (order[gap] !== -1) gap += step;
+    for (let index = gap; index !== dst; index -= step) order[index] = order[index - step];
+    order[dst] = moving;
+    return order;
+  }
+
+  async _moveDay(fromKey, toKey) {
+    const days = this._planAttrs().days || [];
+    const src = days.findIndex((d) => d.key === fromKey);
+    const dst = days.findIndex((d) => d.key === toKey);
+    if (src < 0 || dst < 0 || src === dst) return;
+    const values = days.map((d) => this._dayValue(d));
+    if (!String(values[src]).trim()) return;
+
+    const order = this._moveOrder(values.map((v) => String(v).trim().length > 0), src, dst);
+    const booked = this._draft.uiResteBookedDays || {};
+    const movedBooked = {};
+    days.forEach((d, index) => {
+      const origin = order[index];
+      this._draft[`day-${d.key}`] = origin < 0 ? "" : values[origin];
+      if (origin >= 0 && booked[days[origin].key]) movedBooked[d.key] = true;
+    });
+    this._draft.uiResteBookedDays = movedBooked;
+    this._render();
+
+    const success = await this._callPlanner("move_day", this._planPayload({ from_day: fromKey, to_day: toKey }));
+    days.forEach((d) => delete this._draft[`day-${d.key}`]);
+    if (!success) this._draft.uiResteBookedDays = booked;
+    this._render();
+  }
+
+  async _moveAbend(fromIdx, toIdx) {
+    const pool = this._planAttrs().abendessen || [];
+    const name = pool[fromIdx];
+    if (name == null || fromIdx === toIdx) return;
+    const period = this._selectedPlanPeriod();
+    const localPlan = this._planForPeriod(period.year, period.week);
+    if (localPlan && Array.isArray(localPlan.abendessen)) {
+      const reordered = [...localPlan.abendessen];
+      const [entry] = reordered.splice(fromIdx, 1);
+      reordered.splice(toIdx, 0, entry);
+      localPlan.abendessen = reordered;
+      this._render();
+    }
+    await this._callPlanner("abendessen_verschieben", this._planPayload({ gericht_name: name, position: toIdx }));
+  }
+
+  _bindActions(root) {
     root.querySelectorAll("[data-action]").forEach((element) => {
       element.addEventListener("click", (event) => this._handleAction(event));
     });
@@ -1043,6 +1174,7 @@ class EssenPlanerCard extends HTMLElement {
     if (role === "reste-port") this._draft.restePort = target.value;
     if (role === "reste-ort") { this._draft.resteOrt = target.value; }
     if (role === "reste-ablauf") this._draft.resteAblauf = target.value;
+    if (role === "reste-dialog-name") this._draft.resteDialogDish = target.value;
     if (role === "reste-dialog-port") this._draft.resteDialogPort = target.value;
     if (role === "reste-dialog-ort") { this._draft.resteDialogOrt = target.value; }
     if (role === "reste-dialog-ablauf") this._draft.resteDialogAblauf = target.value;
@@ -1107,12 +1239,20 @@ class EssenPlanerCard extends HTMLElement {
     if (action === "reste-refresh") return this._resteRefresh();
     if (action === "reste-remove") return this._resteRemove(event.currentTarget.dataset.id);
     if (action === "reste-port-delta") return this._restePortDelta(event.currentTarget.dataset.id, event.currentTarget.dataset.delta);
+    if (action === "open-reste-edit") return this._openResteEdit(event.currentTarget.dataset.id);
 
     if (action === "reste-port-apply") return this._confirmResteDialog();
 
     if (action === "open-abend-picker") return this._openAbendPicker();
     if (action === "abend-add") return this._abendAdd();
     if (action === "abend-remove") return this._abendRemove(event.currentTarget.dataset.name);
+    if (action === "abend-toggle-done") {
+      const key = this._searchText(event.currentTarget.dataset.name || "");
+      this._draft.uiAbendDone = this._draft.uiAbendDone || {};
+      this._draft.uiAbendDone[key] = !this._draft.uiAbendDone[key];
+      this._render();
+      return;
+    }
     if (action === "choose-abend-dish") return this._chooseAbendDish(event.currentTarget.dataset.id);
     if (action === "close-abend-picker") return this._closeAbendPicker();
 
@@ -1133,6 +1273,8 @@ class EssenPlanerCard extends HTMLElement {
       const defaultAblauf = this._defaultAblaufForOrt(defaultOrt, dayDate);
 
       this._draft.resteDialogOpen = true;
+      this._draft.resteDialogMode = "add";
+      this._draft.resteDialogEditId = null;
       this._draft.resteDialogDish = dish;
       this._draft.resteDialogDayKey = dayKey;
       this._draft.resteDialogPort = "1";
@@ -1143,15 +1285,7 @@ class EssenPlanerCard extends HTMLElement {
       return;
     }
 
-    if (action === "close-reste-dialog") {
-      this._draft.resteDialogOpen = false;
-      this._draft.resteDialogDish = "";
-      this._draft.resteDialogDayKey = null;
-      this._draft.resteDialogSource = "";
-      this._draft.resteDialogAblauf = "";
-      this._render();
-      return;
-    }
+    if (action === "close-reste-dialog") return this._closeResteDialog();
 
     if (action === "confirm-reste-dialog") {
       await this._confirmResteDialog();
@@ -1302,36 +1436,64 @@ class EssenPlanerCard extends HTMLElement {
     this._render();
   }
 
+  _openResteEdit(id) {
+    const entry = (Array.isArray(this._draft.reste) ? this._draft.reste : []).find((r) => String(r.id) === String(id));
+    if (!entry) return;
+    this._draft.resteDialogOpen = true;
+    this._draft.resteDialogMode = "edit";
+    this._draft.resteDialogEditId = entry.id;
+    this._draft.resteDialogDish = entry.gericht || "";
+    this._draft.resteDialogDayKey = null;
+    this._draft.resteDialogSource = "";
+    this._draft.resteDialogPort = String(entry.portionen || "1");
+    this._draft.resteDialogOrt = String(entry.ort || "").toLowerCase().includes("eingefror") ? "Eingefroren" : "Kühlschrank";
+    this._draft.resteDialogAblauf = entry.ablauf_datum || "";
+    this._render();
+  }
+
+  _closeResteDialog() {
+    this._draft.resteDialogOpen = false;
+    this._draft.resteDialogMode = "add";
+    this._draft.resteDialogEditId = null;
+    this._draft.resteDialogDish = "";
+    this._draft.resteDialogDayKey = null;
+    this._draft.resteDialogSource = "";
+    this._draft.resteDialogAblauf = "";
+    this._render();
+  }
+
   async _confirmResteDialog() {
     const dish = String(this._draft.resteDialogDish || "").trim();
+    if (!dish) return this._notify("Bitte einen Gerichtnamen eingeben.");
     const dayKey = this._draft.resteDialogDayKey;
     const portionen = String(this._draft.resteDialogPort || "1").trim() || "1";
     const ort = String(this._draft.resteDialogOrt || "Kühlschrank");
-    const ablauf = String(this._draft.resteDialogAblauf || this._defaultAblaufForOrt(ort)).trim();
 
-    await this._callPlanner("reste_hinzufuegen", { gericht_name: dish, portionen, ort, ablauf_datum: ablauf });
+    if (this._draft.resteDialogMode === "edit") {
+      const payload = { reste_id: String(this._draft.resteDialogEditId || ""), gericht_name: dish, portionen, ort };
+      const ablauf = String(this._draft.resteDialogAblauf || "").trim();
+      if (ablauf) payload.ablauf_datum = ablauf;
+      if (await this._callPlanner("reste_bearbeiten", payload)) this._closeResteDialog();
+      return;
+    }
+
+    const ablauf = String(this._draft.resteDialogAblauf || this._defaultAblaufForOrt(ort)).trim();
+    const success = await this._callPlanner("reste_hinzufuegen", { gericht_name: dish, portionen, ort, ablauf_datum: ablauf });
+    if (!success) return;
 
     if (dayKey) {
       this._draft.uiResteBookedDays = this._draft.uiResteBookedDays || {};
       this._draft.uiResteBookedDays[dayKey] = true;
     }
 
-    // Wenn der Dialog aus dem Abendessen-Pool kam: optional nach Einbuchen direkt aus dem Pool entfernen.
+    // Wenn der Dialog aus dem Abendessen-Pool kam: nach Einbuchen direkt aus dem Pool entfernen.
     // So bleibt der Pool sauber, ohne dass du extra "X" drücken musst.
     const fromAbend = String(this._draft.resteDialogSource || "") === "abend";
-    const dishToRemove = dish;
+    this._closeResteDialog();
 
-    this._draft.resteDialogOpen = false;
-    this._draft.resteDialogDish = "";
-    this._draft.resteDialogDayKey = null;
-    this._draft.resteDialogSource = "";
-
-    if (fromAbend && dishToRemove) {
-      await this._callPlanner("abendessen_entfernen", this._planPayload({ gericht_name: dishToRemove }));
+    if (fromAbend) {
+      await this._callPlanner("abendessen_entfernen", this._planPayload({ gericht_name: dish }));
     }
-
-    this._draft.resteLoaded = false;
-    this._loadResteFallback();
   }
 
   async _createPlan() {
@@ -1648,7 +1810,7 @@ class EssenPlanerCard extends HTMLElement {
     const role = activeElement && activeElement.dataset ? activeElement.dataset.role : null;
     return [
       "edit-search", "day-picker-search", "day-input", "new-name", "edit-name",
-      "reste-dialog-port", "reste-dialog-ablauf", "reste-name", "reste-port",
+      "reste-dialog-name", "reste-dialog-port", "reste-dialog-ablauf", "reste-name", "reste-port",
       "reste-ablauf", "abend-name", "reste-port-set", "abend-picker-search"
     ].includes(role) ? role : null;
   }
@@ -1808,9 +1970,10 @@ class EssenPlanerCard extends HTMLElement {
       .abend-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
       .abend-row {
         display: grid;
-        grid-template-columns: 36px minmax(180px, 1fr) 44px 44px;
+        grid-template-columns: 32px 36px minmax(0, 1fr) 44px 44px 44px;
         gap: 10px;
         align-items: center;
+        border-radius: 8px;
       }
       .abend-num {
         font-size: 16px;
@@ -1832,6 +1995,9 @@ class EssenPlanerCard extends HTMLElement {
         align-items: center;
         box-sizing: border-box;
       }
+
+      .abend-row--done .abend-name { opacity: 0.55; text-decoration: line-through; }
+      .abend-check--active ha-icon { color: var(--success-color, #2e7d32); }
 
       /* Reste-Liste Header */
       .reste-section-header {
@@ -1974,18 +2140,41 @@ class EssenPlanerCard extends HTMLElement {
       }
       .day-row {
         display: grid;
-        grid-template-columns: 120px 64px minmax(180px, 1fr) 44px 44px 44px 44px;
+        grid-template-columns: 32px 120px 64px minmax(180px, 1fr) 44px 44px 44px 44px;
         gap: 10px;
         align-items: center;
-        cursor: grab;
-        transition: opacity 0.15s;
-      }
-      .day-row.drag-over {
-        outline: 2px dashed var(--primary-color);
         border-radius: 8px;
-        background: color-mix(in srgb, var(--primary-color) 8%, transparent);
       }
-      .day-row.dragging { opacity: 0.4; }
+      .drag-handle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        align-self: stretch;
+        min-height: var(--ep-tap);
+        border-radius: var(--ep-radius);
+        color: var(--secondary-text-color);
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      .drag-handle:hover { background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+      .drag-handle--disabled { opacity: 0.25; cursor: default; }
+      .drag-handle--disabled:hover { background: none; }
+      [data-drag-item].drag-over {
+        outline: 2px dashed var(--primary-color);
+        outline-offset: 2px;
+        background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+      }
+      [data-drag-item].dragging {
+        position: relative;
+        z-index: 5;
+        pointer-events: none;
+        opacity: 0.9;
+        background: var(--card-background-color);
+        box-shadow: 0 8px 24px rgba(0,0,0,.3);
+      }
+      [data-drag-item].dragging .drag-handle { cursor: grabbing; }
       .day-name,
       .day-date {
         font-size: 18px;
@@ -2089,18 +2278,19 @@ class EssenPlanerCard extends HTMLElement {
         .selected-week { min-width: unset; }
 
         .day-row {
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns: 36px 1fr 1fr;
           grid-template-areas:
-            "name date"
-            "input input"
-            "btn1 btn2"
-            "btn3 btn4";
+            "handle name date"
+            "handle input input"
+            "handle btn1 btn2"
+            "handle btn3 btn4";
           gap: 10px;
           padding: 10px;
           border: 1px solid var(--divider-color);
           border-radius: 12px;
           background: color-mix(in srgb, var(--card-background-color) 92%, transparent);
         }
+        .day-row .drag-handle { grid-area: handle; }
         .day-name { grid-area: name; }
         .day-date { grid-area: date; text-align: right; }
         .dish-input { grid-area: input; }
@@ -2108,6 +2298,22 @@ class EssenPlanerCard extends HTMLElement {
         .day-row .icon-button:nth-of-type(2) { grid-area: btn2; width: 100%; }
         .day-row .icon-button:nth-of-type(3) { grid-area: btn3; width: 100%; }
         .day-row .icon-button:nth-of-type(4) { grid-area: btn4; width: 100%; }
+
+        .abend-row {
+          grid-template-columns: 36px 1fr 1fr 1fr;
+          grid-template-areas:
+            "handle name name name"
+            "handle btn1 btn2 btn3";
+          padding: 10px;
+          border: 1px solid var(--divider-color);
+          border-radius: 12px;
+        }
+        .abend-row .drag-handle { grid-area: handle; }
+        .abend-num { display: none; }
+        .abend-name { grid-area: name; }
+        .abend-row .icon-button:nth-of-type(1) { grid-area: btn1; width: 100%; }
+        .abend-row .icon-button:nth-of-type(2) { grid-area: btn2; width: 100%; }
+        .abend-row .icon-button:nth-of-type(3) { grid-area: btn3; width: 100%; }
 
         .plan-tabs { gap: 10px; }
         .plan-tab { flex: 1 1 90px; justify-content: center; }
@@ -2173,7 +2379,8 @@ class EssenPlanerCard extends HTMLElement {
       .badge-warn { background: color-mix(in srgb, #f9a825 18%, transparent); color: #f9a825; }
       .badge-bad { background: color-mix(in srgb, #c62828 18%, transparent); color: #c62828; }
       .badge-neutral { background: color-mix(in srgb, var(--secondary-text-color) 10%, transparent); color: var(--secondary-text-color); }
-      .reste-text { display:flex; flex-direction:column; gap:6px; min-width: 0; }
+      .reste-text { display:flex; flex-direction:column; gap:6px; min-width: 0; flex: 1 1 auto; }
+      .reste-actions { display:flex; flex-direction:column; gap: 8px; }
       .reste-meta { display:flex; flex-wrap: wrap; gap: 8px; color: var(--secondary-text-color); font-weight: 700; }
       .reste-controls { display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-top: 6px; }
       .reste-port-label { color: var(--secondary-text-color); font-weight: 800; font-size: 12px; letter-spacing: .02em; text-transform: uppercase; }

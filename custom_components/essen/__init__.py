@@ -3,9 +3,9 @@
 Neue Features gegenüber Original (ThomyieD/Essensplaner-HA):
   - Abendessen-Pool pro Woche (gesammelt, nicht tagesgenau)
   - Reste-Verwaltung mit automatischem Ablaufdatum (+3 Tage)
-  - Services: abendessen_hinzufuegen, abendessen_entfernen,
+  - Services: abendessen_hinzufuegen, abendessen_entfernen, abendessen_verschieben,
               reste_hinzufuegen, reste_entfernen, reste_portionen_aendern,
-              reste_alle_laden
+              reste_bearbeiten, reste_alle_laden, move_day
   - Typ-Feld ("Mittag" / "Abend") in Gerichte-Daten
 """
 
@@ -216,6 +216,48 @@ class MealPlanner:
             self._store_plan(plan)
             return plan
 
+    def move_day(
+        self,
+        from_day: str,
+        to_day: str,
+        year: int | None = None,
+        week: int | None = None,
+    ) -> dict[str, Any]:
+        """Verschiebt das Gericht eines Tages auf einen anderen Tag.
+
+        Ist der Zieltag leer, wird das Gericht einfach dorthin verschoben.
+        Ist der Zieltag belegt, rücken die Gerichte ab dem Zieltag bis zur
+        nächsten Lücke (spätestens dem frei gewordenen Ursprungstag) um einen Tag nach.
+        """
+        with self._lock:
+            plan = self._get_or_create_plan(year, week)
+            days = plan["days"]
+            source = self._find_day(plan, from_day)
+            target = self._find_day(plan, to_day)
+            src_idx = days.index(source)
+            dst_idx = days.index(target)
+            if src_idx == dst_idx or not source.get("dish_name"):
+                return plan
+
+            fields = ("dish_id", "dish_name", "klasse", "custom")
+            slots = [{field: day.get(field) for field in fields} for day in days]
+            moving = slots[src_idx]
+            slots[src_idx] = {"dish_id": None, "dish_name": "", "klasse": None, "custom": False}
+
+            step = 1 if src_idx > dst_idx else -1
+            gap = dst_idx
+            while slots[gap].get("dish_name"):
+                gap += step
+            for idx in range(gap, dst_idx, -step):
+                slots[idx] = slots[idx - step]
+            slots[dst_idx] = moving
+
+            for day, slot in zip(days, slots):
+                day.update(slot)
+                day["custom"] = bool(day.get("custom"))
+            self._store_plan(plan)
+            return plan
+
     # ------------------------------------------------------------------
     # Abendessen-Pool
     # ------------------------------------------------------------------
@@ -273,6 +315,39 @@ class MealPlanner:
                 raise ValueError(f"'{gericht_name}' nicht im Abendessen-Pool gefunden.")
 
             plan["abendessen"] = new_list
+            plan["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            self._save_plans(plans_data)
+            return plan
+
+    def abendessen_verschieben(
+        self,
+        gericht_name: str,
+        position: int,
+        year: int | None = None,
+        week: int | None = None,
+    ) -> dict[str, Any]:
+        """Verschiebt ein Gericht im Abendessen-Pool an eine neue Position (0-basiert)."""
+        gericht_name = str(gericht_name or "").strip()
+
+        with self._lock:
+            year, week = self._resolve_year_week(year, week)
+            plans_data = self._load_plans()
+            plan = plans_data.get("plans", {}).get(_plan_key(year, week))
+            if plan is None:
+                raise ValueError("Kein Plan für diese Woche gefunden.")
+
+            abendessen = plan.get("abendessen", [])
+            index = next(
+                (i for i, e in enumerate(abendessen) if _normalize(e) == _normalize(gericht_name)),
+                None,
+            )
+            if index is None:
+                raise ValueError(f"'{gericht_name}' nicht im Abendessen-Pool gefunden.")
+
+            entry = abendessen.pop(index)
+            position = max(0, min(int(position), len(abendessen)))
+            abendessen.insert(position, entry)
+            plan["abendessen"] = abendessen
             plan["updated_at"] = datetime.now().isoformat(timespec="seconds")
             self._save_plans(plans_data)
             return plan
@@ -365,6 +440,57 @@ class MealPlanner:
             found["aktualisiert_am"] = datetime.now().isoformat(timespec="seconds")
             self._save_reste(reste)
             return reste
+
+    def reste_bearbeiten(
+        self,
+        reste_id: str,
+        gericht_name: str | None = None,
+        portionen: str | None = None,
+        ort: str | None = None,
+        datum_gekocht: str | None = None,
+        ablauf_datum: str | None = None,
+    ) -> dict[str, Any]:
+        reste_id = str(reste_id or "").strip()
+
+        with self._lock:
+            reste = self._load_reste()
+            found = next((r for r in reste if r.get("id") == reste_id), None)
+            if found is None:
+                raise ValueError(f"Reste-Eintrag '{reste_id}' nicht gefunden.")
+
+            if gericht_name is not None:
+                name = str(gericht_name).strip()
+                if not name:
+                    raise ValueError("Bitte einen Gerichtnamen angeben.")
+                found["gericht"] = name
+
+            if portionen is not None:
+                raw = str(portionen).strip().replace(",", ".")
+                try:
+                    value = float(raw)
+                except ValueError as err:
+                    raise ValueError("Portionen müssen eine Zahl sein (z.B. 1, 2.5).") from err
+                if value <= 0:
+                    raise ValueError("Portionen müssen größer als 0 sein.")
+                if abs(value - round(value)) < 1e-9:
+                    found["portionen"] = str(int(round(value)))
+                else:
+                    found["portionen"] = str(round(value, 2)).rstrip("0").rstrip(".")
+
+            if ort is not None and str(ort).strip():
+                found["ort"] = str(ort).strip()
+
+            for key, value in (("datum_gekocht", datum_gekocht), ("ablauf_datum", ablauf_datum)):
+                if value is None or not str(value).strip():
+                    continue
+                try:
+                    found[key] = date.fromisoformat(str(value).strip()).isoformat()
+                except ValueError as err:
+                    raise ValueError(f"Ungültiges Datum: {value}") from err
+
+            found["aktualisiert_am"] = datetime.now().isoformat(timespec="seconds")
+            self._save_reste(reste)
+            return found
 
     def reste_alle_laden(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -898,6 +1024,12 @@ def async_register_services(hass: HomeAssistant, manager: MealPlanner) -> None:
     hass.services.async_register(DOMAIN, "clear_day", service_handler("clear_day"), schema=vol.Schema({vol.Required("day"): cv.string, **YEAR_WEEK_SCHEMA}))
     hass.services.async_register(
         DOMAIN,
+        "move_day",
+        service_handler("move_day"),
+        schema=vol.Schema({vol.Required("from_day"): cv.string, vol.Required("to_day"): cv.string, **YEAR_WEEK_SCHEMA}),
+    )
+    hass.services.async_register(
+        DOMAIN,
         "add_dish",
         service_handler("add_dish"),
         schema=vol.Schema({vol.Required("name"): cv.string, vol.Required("klasse"): KLASSE, vol.Optional("typ", default="Mittag"): cv.string}),
@@ -913,6 +1045,12 @@ def async_register_services(hass: HomeAssistant, manager: MealPlanner) -> None:
     # Abendessen
     hass.services.async_register(DOMAIN, "abendessen_hinzufuegen", service_handler("abendessen_hinzufuegen"), schema=vol.Schema({vol.Required("gericht_name"): cv.string, **YEAR_WEEK_SCHEMA}))
     hass.services.async_register(DOMAIN, "abendessen_entfernen", service_handler("abendessen_entfernen"), schema=vol.Schema({vol.Required("gericht_name"): cv.string, **YEAR_WEEK_SCHEMA}))
+    hass.services.async_register(
+        DOMAIN,
+        "abendessen_verschieben",
+        service_handler("abendessen_verschieben"),
+        schema=vol.Schema({vol.Required("gericht_name"): cv.string, vol.Required("position"): vol.All(vol.Coerce(int), vol.Range(min=0)), **YEAR_WEEK_SCHEMA}),
+    )
 
     # Reste
     hass.services.async_register(
@@ -923,6 +1061,12 @@ def async_register_services(hass: HomeAssistant, manager: MealPlanner) -> None:
     )
     hass.services.async_register(DOMAIN, "reste_entfernen", service_handler("reste_entfernen"), schema=vol.Schema({vol.Required("reste_id"): cv.string}))
     hass.services.async_register(DOMAIN, "reste_portionen_aendern", service_handler("reste_portionen_aendern"), schema=vol.Schema({vol.Required("reste_id"): cv.string, vol.Required("delta"): vol.Coerce(float)}))
+    hass.services.async_register(
+        DOMAIN,
+        "reste_bearbeiten",
+        service_handler("reste_bearbeiten"),
+        schema=vol.Schema({vol.Required("reste_id"): cv.string, vol.Optional("gericht_name"): cv.string, vol.Optional("portionen"): cv.string, vol.Optional("ort"): cv.string, vol.Optional("datum_gekocht"): cv.string, vol.Optional("ablauf_datum"): cv.string}),
+    )
     hass.services.async_register(DOMAIN, "reste_alle_laden", service_handler("reste_alle_laden"), schema=vol.Schema({}))
 
     hass.data[DOMAIN]["services_registered"] = True
