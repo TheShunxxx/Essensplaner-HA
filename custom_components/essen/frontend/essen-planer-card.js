@@ -1246,6 +1246,13 @@ class EssenPlanerCard extends HTMLElement {
     if (action === "open-abend-picker") return this._openAbendPicker();
     if (action === "abend-add") return this._abendAdd();
     if (action === "abend-remove") return this._abendRemove(event.currentTarget.dataset.name);
+    if (action === "abend-toggle-done") {
+      const key = this._searchText(event.currentTarget.dataset.name || "");
+      this._draft.uiAbendDone = this._draft.uiAbendDone || {};
+      this._draft.uiAbendDone[key] = !this._draft.uiAbendDone[key];
+      this._render();
+      return;
+    }
     if (action === "choose-abend-dish") return this._chooseAbendDish(event.currentTarget.dataset.id);
     if (action === "close-abend-picker") return this._closeAbendPicker();
 
@@ -1988,6 +1995,9 @@ class EssenPlanerCard extends HTMLElement {
         align-items: center;
         box-sizing: border-box;
       }
+
+      .abend-row--done .abend-name { opacity: 0.55; text-decoration: line-through; }
+      .abend-check--active ha-icon { color: var(--success-color, #2e7d32); }
 
       /* Reste-Liste Header */
       .reste-section-header {

@@ -11,6 +11,14 @@ Ein Essensplaner für Home Assistant mit Wochenplan, Gerichteliste und einfachen
 - einzelne Tage neu würfeln
 - Tage leeren oder frei überschreiben
 - Gericht aus einer suchbaren Liste auswählen
+- Gerichte per Drag-and-Drop auf einen anderen Tag verschieben (am PC mit der Maus, am Handy mit dem Finger über den Griff ⋮⋮ links in der Zeile)
+  - freier Zieltag: das Gericht wird einfach dorthin verschoben
+  - belegter Zieltag: die folgenden Gerichte rücken bis zur nächsten Lücke um einen Tag nach
+- Abendessen-Pool pro Woche: Gerichte sammeln, per Drag-and-Drop sortieren und als erledigt abhaken
+- Reste-Verwaltung (Kühlschrank / Gefrierschrank) mit Ablaufdatum und Ampel-Anzeige
+  - Mittag- und Abendessen direkt als Reste einbuchen
+  - eingebuchte Reste nachträglich bearbeiten (Name, Portionen, Ort, Haltbar bis)
+  - Portionen schnell mit +/- anpassen
 - neue Gerichte hinzufügen
 - Gerichte bearbeiten oder deaktivieren
 - lokale Datenhaltung in JSON-Dateien, keine Datenbank nötig
@@ -223,6 +231,7 @@ Die Daten liegen lokal in deinem Home-Assistant-Konfigurationsordner:
 ```text
 /config/essen/gerichte.json
 /config/essen/wochenplaene.json
+/config/essen/reste.json
 ```
 
 Die Integration veröffentlicht zusätzlich aktuelle Daten für die Dashboard-Karte:
@@ -230,7 +239,25 @@ Die Integration veröffentlicht zusätzlich aktuelle Daten für die Dashboard-Ka
 ```text
 /config/www/essen-gerichte.json
 /config/www/essen-wochenplaene.json
+/config/www/essen-reste.json
 ```
+
+## Services
+
+Neben der Dashboard-Karte lassen sich alle Funktionen auch über Services (z. B. in Automationen) nutzen:
+
+| Service | Aufgabe |
+|---|---|
+| `essen.create_plan` | Wochenplan erstellen |
+| `essen.reroll_day` | einen Tag neu würfeln |
+| `essen.set_day` / `essen.clear_day` | Gericht für einen Tag setzen / leeren |
+| `essen.move_day` | Gericht von einem Tag auf einen anderen verschieben |
+| `essen.add_dish` / `essen.update_dish` / `essen.deactivate_dish` | Gerichte verwalten |
+| `essen.abendessen_hinzufuegen` / `essen.abendessen_entfernen` | Abendessen-Pool pflegen |
+| `essen.abendessen_verschieben` | Position im Abendessen-Pool ändern |
+| `essen.reste_hinzufuegen` / `essen.reste_entfernen` | Reste einbuchen / entfernen |
+| `essen.reste_portionen_aendern` | Portionen eines Rests um einen Wert ändern |
+| `essen.reste_bearbeiten` | Name, Portionen, Ort oder Datum eines Rests ändern |
 
 Beim Deaktivieren eines Gerichts wird es nicht gelöscht. Es bleibt in der Datei erhalten, wird aber nicht mehr für neue Pläne verwendet.
 
