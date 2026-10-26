@@ -23,6 +23,7 @@ from typing import Any
 
 import voluptuous as vol
 
+from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -908,6 +909,9 @@ async def async_register_frontend(hass: HomeAssistant) -> None:
         )
     except RuntimeError:
         _LOGGER.debug("Frontend path already registered: %s", FRONTEND_URL)
+    # Karte direkt beim Frontend anmelden: Sie wird damit auf jeder Seite geladen,
+    # auch ohne Eintrag unter "Ressourcen" und bei Dashboards im YAML-Modus.
+    add_extra_js_url(hass, CARD_RESOURCE_URL)
     hass.data[DOMAIN]["frontend_registered"] = True
 
 

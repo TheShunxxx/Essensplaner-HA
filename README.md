@@ -111,28 +111,23 @@ Beim ersten Start legt die Integration Beispieldaten an.
 
 ### Dashboard-Karte
 
-Der Essensplaner nutzt eine eigene Dashboard-Karte. Die Ressource für diese
-Karte wird beim Start der Integration automatisch eingerichtet.
+Der Essensplaner nutzt eine eigene Dashboard-Karte. Die Karte wird beim Start
+der Integration automatisch beim Home-Assistant-Frontend angemeldet und auf jeder
+Seite geladen – auch bei Dashboards im YAML-Modus.
 
-Normalerweise musst du unter `Einstellungen -> Dashboards -> Ressourcen` nichts
-von Hand anlegen oder ändern.
+Du musst unter `Einstellungen -> Dashboards -> Ressourcen` nichts von Hand
+anlegen oder ändern. Ein früher von Hand angelegter Eintrag für
+`essen-planer-card.js` stört nicht und wird bei Dashboards im UI-Modus
+automatisch auf die aktuelle Version gebracht.
 
 Wenn die Karte nach einem Update nicht geladen wird:
 
-1. `Einstellungen -> Geräte & Dienste -> Entitäten` öffnen.
-2. Nach `Essensplaner Frontend reparieren` suchen.
-3. Die Entität öffnen und den Button drücken.
-4. Home Assistant neu starten.
-5. Die Home-Assistant-Seite oder App einmal neu laden.
-
-Bei Dashboards im YAML-Modus kann Home Assistant Ressourcen nicht automatisch
-eintragen. Dann muss diese Ressource in der YAML-Konfiguration stehen:
-
-```yaml
-resources:
-  - url: /essen-planer/essen-planer-card.js?v=0.1.13
-    type: module
-```
+1. Home Assistant neu starten.
+2. Die Home-Assistant-Seite hart neu laden (Strg+Shift+R) bzw. in der App den
+   Frontend-Cache zurücksetzen.
+3. Falls es weiterhin nicht klappt: `Einstellungen -> Geräte & Dienste -> Entitäten`
+   öffnen, nach `Essensplaner Frontend reparieren` suchen, den Button drücken und
+   Home Assistant erneut neu starten.
 
 ### Views anlegen
 
@@ -214,7 +209,7 @@ Dann diese Punkte prüfen:
 - Lässt sich diese Adresse im Browser öffnen?
 
   ```text
-  https://DEIN-HOME-ASSISTANT-IP:PORT/essen-planer/essen-planer-card.js?v=0.1.13
+  https://DEIN-HOME-ASSISTANT-IP:PORT/essen-planer/essen-planer-card.js
   ```
 
   Wenn dort JavaScript-Code erscheint, ist die Datei erreichbar. Dann die
