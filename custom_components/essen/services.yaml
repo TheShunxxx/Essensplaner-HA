@@ -239,3 +239,29 @@ reste_bearbeiten:
       name: Haltbar bis
       selector:
         date:
+reste_ersetzen:
+  name: Reste ersetzen
+  description: >-
+    Ersetzt den ganzen Reste-Bestand durch die übergebene Liste (Abgleich mit
+    der Einkaufs-App). Alle Einträge werden vorher geprüft; ist einer ungültig,
+    bleibt der Bestand unverändert. Eine leere Liste entfernt alle Reste.
+  fields:
+    reste:
+      name: Reste
+      description: >-
+        Liste von Einträgen mit id, gericht, portionen, ort (Kühlschrank oder
+        Eingefroren), datum_gekocht und ablauf_datum (JJJJ-MM-TT).
+      required: true
+      example: >-
+        [{"id": "app-1", "gericht": "Chili", "portionen": "2,5", "ort": "Kühlschrank",
+        "datum_gekocht": "2026-11-14", "ablauf_datum": "2026-11-17"}]
+      selector:
+        object:
+    stand:
+      name: Stand
+      description: >-
+        Zeitpunkt des Bestands (ISO 8601 mit Zeitzone). Ein Aufruf mit älterem
+        Stand als dem zuletzt übernommenen wird ignoriert.
+      example: "2026-11-14T12:00:00+00:00"
+      selector:
+        text:

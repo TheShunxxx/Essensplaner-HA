@@ -15,10 +15,12 @@ Ein Essensplaner für Home Assistant mit Wochenplan, Gerichteliste und einfachen
   - freier Zieltag: das Gericht wird einfach dorthin verschoben
   - belegter Zieltag: die folgenden Gerichte rücken bis zur nächsten Lücke um einen Tag nach
 - Abendessen-Pool pro Woche: Gerichte sammeln, per Drag-and-Drop sortieren und als erledigt abhaken
-- Reste-Verwaltung (Kühlschrank / Gefrierschrank) mit Ablaufdatum und Ampel-Anzeige
-  - Mittag- und Abendessen direkt als Reste einbuchen
-  - eingebuchte Reste nachträglich bearbeiten (Name, Portionen, Ort, Haltbar bis)
-  - Portionen schnell mit +/- anpassen
+- Reste-Anzeige (Kühlschrank / Gefrierschrank) mit Ablaufdatum und Ampel-Anzeige
+  - die Reste führt die Einkaufs-App; sie schickt den ganzen Bestand per Webhook
+    an Home Assistant (siehe [Reste-Abgleich](docs/reste-abgleich.md))
+  - die Reste-Ansicht der Karte zeigt die Reste nur an. Einbuchen, Bearbeiten
+    und +/- in der Karte funktionieren noch, werden aber beim nächsten Abgleich
+    von der Einkaufs-App überschrieben
 - neue Gerichte hinzufügen
 - Gerichte bearbeiten oder deaktivieren
 - lokale Datenhaltung in JSON-Dateien, keine Datenbank nötig
@@ -253,6 +255,12 @@ Neben der Dashboard-Karte lassen sich alle Funktionen auch über Services (z. B.
 | `essen.reste_hinzufuegen` / `essen.reste_entfernen` | Reste einbuchen / entfernen |
 | `essen.reste_portionen_aendern` | Portionen eines Rests um einen Wert ändern |
 | `essen.reste_bearbeiten` | Name, Portionen, Ort oder Datum eines Rests ändern |
+| `essen.reste_ersetzen` | ganzen Reste-Bestand ersetzen (Abgleich mit der Einkaufs-App) |
+
+Die Reste führt die Einkaufs-App. Sie ruft über den Webhook `essensplaner_reste`
+und eine Automation `essen.reste_ersetzen` auf. Die Einzel-Dienste für Reste
+bleiben erhalten, ihre Änderungen überschreibt aber der nächste Abgleich.
+Beispiel-Automation und Format: [docs/reste-abgleich.md](docs/reste-abgleich.md).
 
 Beim Deaktivieren eines Gerichts wird es nicht gelöscht. Es bleibt in der Datei erhalten, wird aber nicht mehr für neue Pläne verwendet.
 

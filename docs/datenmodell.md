@@ -8,12 +8,19 @@ Der Essensplaner braucht keine Datenbank. Alle Daten liegen lokal als JSON in
 ```text
 /config/essen/gerichte.json
 /config/essen/wochenplaene.json
+/config/essen/reste.json
 /config/www/essen-gerichte.json
 /config/www/essen-wochenplaene.json
+/config/www/essen-reste.json
 ```
 
 `/config/essen` ist die eigentliche Datenhaltung. Die Dateien unter
 `/config/www` sind veröffentlichte Kopien für das Lovelace-Frontend.
+
+`reste.json` ist eine Liste von Resten (`id`, `gericht`, `portionen`, `ort`,
+`datum_gekocht`, `ablauf_datum`). Führend für die Reste ist die Einkaufs-App:
+Sie ersetzt die Datei bei jeder Änderung über `essen.reste_ersetzen`
+(siehe [Reste-Abgleich](reste-abgleich.md)).
 
 ## gerichte.json
 
@@ -122,5 +129,8 @@ Vor größeren Änderungen reicht normalerweise ein Backup von:
 /config/essen/gerichte.json
 /config/essen/wochenplaene.json
 ```
+
+`reste.json` muss nicht gesichert werden, die Einkaufs-App schickt den Bestand
+bei der nächsten Änderung neu.
 
 Die Dateien unter `/config/www` werden von der Integration automatisch aktualisiert.

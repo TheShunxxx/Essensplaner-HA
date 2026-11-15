@@ -5,7 +5,9 @@ Neue Features gegenüber Original (ThomyieD/Essensplaner-HA):
   - Reste-Verwaltung mit automatischem Ablaufdatum (+3 Tage)
   - Services: abendessen_hinzufuegen, abendessen_entfernen, abendessen_verschieben,
               reste_hinzufuegen, reste_entfernen, reste_portionen_aendern,
-              reste_bearbeiten, reste_alle_laden, move_day
+              reste_bearbeiten, reste_alle_laden, reste_ersetzen, move_day
+  - Reste-Abgleich: die Einkaufs-App schickt per Webhook den ganzen Bestand
+    (Dienst reste_ersetzen)
   - Typ-Feld ("Mittag" / "Abend") in Gerichte-Daten
 """
 
@@ -89,6 +91,13 @@ YEAR_WEEK_SCHEMA = {
 RESTE_ABLAUF_TAGE_KUEHLSCHRANK = 3
 RESTE_ABLAUF_TAGE_EINGEFROREN = 90
 
+# Erlaubte Orte beim Reste-Abgleich (normalisierte Schreibweise -> gespeicherter Wert)
+RESTE_ORTE = {
+    "kuhlschrank": "Kühlschrank",
+    "kuehlschrank": "Kühlschrank",
+    "eingefroren": "Eingefroren",
+}
+
 
 # ---------------------------------------------------------------------------
 # Hilfsfunktionen
@@ -131,6 +140,8 @@ class MealPlanner:
         self.card_source_file = Path(__file__).with_name("frontend") / CARD_FILENAME
 
         self._lock = RLock()
+        # Zeitstempel des zuletzt übernommenen Reste-Abgleichs (nur im Speicher)
+        self._reste_stand: datetime | None = None
 
     # ------------------------------------------------------------------
     # Initialisierung
@@ -496,6 +507,92 @@ class MealPlanner:
     def reste_alle_laden(self) -> list[dict[str, Any]]:
         with self._lock:
             return self._load_reste()
+
+    def reste_ersetzen(
+        self,
+        reste: list[dict[str, Any]],
+        stand: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Ersetzt den ganzen Reste-Bestand (Abgleich mit der Einkaufs-App).
+
+        Erst werden alle Einträge geprüft; ist einer ungültig, bleibt reste.json
+        unverändert. Eine leere Liste leert den Bestand. Ist ``stand`` älter als
+        der zuletzt übernommene Stand, wird der Aufruf ignoriert, damit ein
+        verspätet eintreffender Abgleich keinen neueren überschreibt.
+        """
+        neu: list[dict[str, Any]] = []
+        ids: set[str] = set()
+        for nummer, eintrag in enumerate(reste or [], start=1):
+            neu.append(self._pruefe_rest(eintrag, nummer, ids))
+
+        stand_zeit = self._parse_stand(stand)
+        with self._lock:
+            letzter = self._reste_stand
+            if stand_zeit is not None and letzter is not None and stand_zeit < letzter:
+                _LOGGER.info("Reste-Abgleich vom %s ignoriert, %s ist neuer", stand, letzter.isoformat())
+                return self._load_reste()
+            self._save_reste(neu)
+            if stand_zeit is not None:
+                self._reste_stand = stand_zeit
+            return neu
+
+    @staticmethod
+    def _parse_stand(stand: str | None) -> datetime | None:
+        text = str(stand or "").strip()
+        if not text:
+            return None
+        try:
+            zeit = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError as err:
+            raise ValueError(f"Ungültiger Stand: {stand}") from err
+        if zeit.tzinfo is None:
+            raise ValueError(f"Stand ohne Zeitzone: {stand}")
+        return zeit
+
+    @staticmethod
+    def _pruefe_rest(eintrag: Any, nummer: int, ids: set[str]) -> dict[str, Any]:
+        if not isinstance(eintrag, dict):
+            raise ValueError(f"Rest {nummer}: Eintrag muss ein Objekt sein.")
+
+        rest_id = str(eintrag.get("id") or "").strip()
+        if not rest_id:
+            raise ValueError(f"Rest {nummer}: id fehlt.")
+        if rest_id in ids:
+            raise ValueError(f"Rest {nummer}: id '{rest_id}' kommt doppelt vor.")
+        ids.add(rest_id)
+
+        gericht = str(eintrag.get("gericht") or "").strip()
+        if not gericht:
+            raise ValueError(f"Rest {nummer} ({rest_id}): gericht fehlt.")
+
+        portionen = str(eintrag.get("portionen") if eintrag.get("portionen") is not None else "").strip()
+        try:
+            if float(portionen.replace(",", ".")) <= 0:
+                raise ValueError
+        except ValueError as err:
+            raise ValueError(f"Rest {nummer} ({rest_id}): ungültige Portionen '{portionen}'.") from err
+
+        roh_ort = str(eintrag.get("ort") or "Kühlschrank").strip()
+        ort = RESTE_ORTE.get(_normalize(roh_ort))
+        if ort is None:
+            raise ValueError(f"Rest {nummer} ({rest_id}): unbekannter Ort '{roh_ort}'.")
+
+        daten: dict[str, str] = {}
+        for key in ("datum_gekocht", "ablauf_datum"):
+            value = str(eintrag.get(key) or "").strip()
+            try:
+                daten[key] = date.fromisoformat(value).isoformat()
+            except ValueError as err:
+                raise ValueError(f"Rest {nummer} ({rest_id}): ungültiges {key} '{value}'.") from err
+
+        return {
+            "id": rest_id,
+            "gericht": gericht,
+            "datum_gekocht": daten["datum_gekocht"],
+            "ablauf_datum": daten["ablauf_datum"],
+            "ort": ort,
+            "portionen": portionen,
+        }
 
     # ------------------------------------------------------------------
     # Gerichte verwalten
@@ -1072,5 +1169,12 @@ def async_register_services(hass: HomeAssistant, manager: MealPlanner) -> None:
         schema=vol.Schema({vol.Required("reste_id"): cv.string, vol.Optional("gericht_name"): cv.string, vol.Optional("portionen"): cv.string, vol.Optional("ort"): cv.string, vol.Optional("datum_gekocht"): cv.string, vol.Optional("ablauf_datum"): cv.string}),
     )
     hass.services.async_register(DOMAIN, "reste_alle_laden", service_handler("reste_alle_laden"), schema=vol.Schema({}))
+    # Abgleich mit der Einkaufs-App: ganzer Bestand auf einmal
+    hass.services.async_register(
+        DOMAIN,
+        "reste_ersetzen",
+        service_handler("reste_ersetzen"),
+        schema=vol.Schema({vol.Required("reste"): vol.All(cv.ensure_list, [dict]), vol.Optional("stand"): cv.string}),
+    )
 
     hass.data[DOMAIN]["services_registered"] = True
